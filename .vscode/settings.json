@@ -1,0 +1,4 @@
+{
+  "plantuml.java": "/opt/homebrew/opt/openjdk/bin/java",
+  "plantuml.exportOutDir": "architecture/out"
+}

@@ -1,0 +1,3 @@
+name,address,lat,lng,connectorType,maxKW,status
+Athens Center,Central Ave 1,37.98,23.73,CCS,120,AVAILABLE
+Patras Dock,Port 3,38.25,21.73,TYPE2,22,IN_USE

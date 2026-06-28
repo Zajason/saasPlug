@@ -1,0 +1,334 @@
+name: saasplug
+
+x-service-build: &service-build
+  context: .
+  dockerfile: Dockerfile.service
+
+x-service-env: &service-env
+  NODE_ENV: production
+  REDIS_URL: redis://redis:6379
+  JWT_SECRET: saasplug-local-dev-secret
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_replace_me}
+  ENTSOE_TOKEN: replace-with-entsoe-token
+  ENABLE_PRICING: "0"
+  INTEGRATION_USE_MOCK: ${INTEGRATION_USE_MOCK:-false}
+  GOOGLE_CLIENT_ID: 539374766653-q0nb51l44871bq262mhi2k8m9n71aj0v.apps.googleusercontent.com
+  INTEGRATION_DEFAULT_API_KEY: ${INTEGRATION_DEFAULT_API_KEY:-sk_saas_954d32147669212952846e05}
+  MESSAGING_ENABLED: ${MESSAGING_ENABLED:-true}
+  RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672
+  RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+  RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-saasplug.events}
+
+x-service-depends: &service-depends
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  rabbitmq:
+    condition: service_healthy
+  db-init:
+    condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "${RABBITMQ_AMQP_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+  db-init:
+    build: *service-build
+    environment:
+      <<: *service-env
+      ADMIN_DATABASE_URL: postgresql://user:pass@postgres:5432/postgres
+    command: sh -c "sh ./scripts/docker-init-service-databases.sh"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: "no"
+
+  api-gateway:
+    build: *service-build
+    command: npm --prefix services/api-gateway run start
+    environment:
+      PORT: 8080
+      AUTH_SERVICE_URL: http://auth-service:8081
+      USER_SERVICE_URL: http://user-service:8082
+      VEHICLE_SERVICE_URL: http://vehicle-service:8083
+      CHARGER_SERVICE_URL: http://charger-service:8084
+      RESERVATION_SERVICE_URL: http://reservation-service:8085
+      SESSION_SERVICE_URL: http://session-service:8086
+      BILLING_SERVICE_URL: http://billing-service:8087
+      PROVIDER_SERVICE_URL: http://provider-service:8088
+      ANALYTICS_SERVICE_URL: http://analytics-service:8089
+      INTEGRATION_SERVICE_URL: http://integration-service:8090
+      AUDIT_SERVICE_URL: http://audit-service:8091
+    ports:
+      - "${API_GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      auth-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      vehicle-service:
+        condition: service_started
+      charger-service:
+        condition: service_started
+      reservation-service:
+        condition: service_started
+      session-service:
+        condition: service_started
+      billing-service:
+        condition: service_started
+      provider-service:
+        condition: service_started
+      integration-service:
+        condition: service_started
+      analytics-service:
+        condition: service_started
+      audit-service:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://localhost:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  auth-service:
+    build: *service-build
+    command: npm --prefix services/auth-service run start
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql://user:pass@postgres:5432/saasplug_auth?schema=auth_service
+      REPLICA_DATABASE_URLS: postgresql://user:pass@postgres:5432/saasplug_user?schema=user_service,postgresql://user:pass@postgres:5432/saasplug_vehicle?schema=vehicle_service,postgresql://user:pass@postgres:5432/saasplug_reservation?schema=reservation_service,postgresql://user:pass@postgres:5432/saasplug_session?schema=session_service,postgresql://user:pass@postgres:5432/saasplug_billing?schema=billing_service,postgresql://user:pass@postgres:5432/saasplug_provider?schema=provider_service,postgresql://user:pass@postgres:5432/saasplug_analytics?schema=analytics_service
+      PORT: 8081
+    depends_on: *service-depends
+
+  user-service:
+    build: *service-build
+    command: npm --prefix services/user-service run start
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql://user:pass@postgres:5432/saasplug_user?schema=user_service
+      PORT: 8082
+    depends_on: *service-depends
+
+  vehicle-service:
+    build: *service-build
+    command: npm --prefix services/vehicle-service run start
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql://user:pass@postgres:5432/saasplug_vehicle?schema=vehicle_service
+      PORT: 8083
+    depends_on: *service-depends
+
+  charger-service:
+    build: *service-build
+    command: npm --prefix services/charger-service run start
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql://user:pass@postgres:5432/saasplug_charger?schema=charger_service
+      PORT: 8084
+      RESERVATION_SERVICE_URL: http://reservation-service:8085
+      SESSION_SERVICE_URL: http://session-service:8086
+    depends_on: *service-depends
+
+  reservation-service:
+    build: *service-build
+    command: npm --prefix services/reservation-service run start
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql://user:pass@postgres:5432/saasplug_reservation?schema=reservation_service
+      PORT: 8085
+      CHARGER_SERVICE_URL: http://charger-service:8084
+      INTEGRATION_SERVICE_URL: http://integration-service:8090
+      CI: "true"
+    depends_on: *service-depends
+
+  session-service:
+    build: *service-build
+    command: npm --prefix services/session-service run start
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql://user:pass@postgres:5432/saasplug_session?schema=session_service
+      PORT: 8086
+      CHARGER_SERVICE_URL: http://charger-service:8084
+      RESERVATION_SERVICE_URL: http://reservation-service:8085
+    depends_on: *service-depends
+
+  billing-service:
+    build: *service-build
+    command: npm --prefix services/billing-service run start
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql://user:pass@postgres:5432/saasplug_billing?schema=billing_service
+      PORT: 8087
+    depends_on: *service-depends
+
+  provider-service:
+    build: *service-build
+    command: npm --prefix services/provider-service run start
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql://user:pass@postgres:5432/saasplug_provider?schema=provider_service
+      PORT: 8088
+    depends_on: *service-depends
+
+  integration-service:
+    build: *service-build
+    command: npm --prefix services/integration-service run start
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql://user:pass@postgres:5432/saasplug_integration?schema=integration_service
+      PORT: 8090
+    depends_on: *service-depends
+
+  analytics-service:
+    build: *service-build
+    command: npm --prefix services/analytics-service run start
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql://user:pass@postgres:5432/saasplug_analytics?schema=analytics_service
+      PORT: 8089
+      CHARGER_SERVICE_URL: http://charger-service:8084
+      PROVIDER_SERVICE_URL: http://provider-service:8088
+    depends_on: *service-depends
+
+  audit-service:
+    build: *service-build
+    command: npm --prefix services/audit-service run start
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql://user:pass@postgres:5432/saasplug_audit?schema=audit_service
+      PORT: 8091
+      AUDIT_EVENTS_QUEUE: audit.events
+    depends_on: *service-depends
+
+  monitor-service:
+    build: *service-build
+    command: npm --prefix services/monitor-service run start
+    environment:
+      <<: *service-env
+      PORT: 9090
+      API_GATEWAY_URL: http://api-gateway:8080
+      AUTH_SERVICE_URL: http://auth-service:8081
+      USER_SERVICE_URL: http://user-service:8082
+      VEHICLE_SERVICE_URL: http://vehicle-service:8083
+      CHARGER_SERVICE_URL: http://charger-service:8084
+      RESERVATION_SERVICE_URL: http://reservation-service:8085
+      SESSION_SERVICE_URL: http://session-service:8086
+      BILLING_SERVICE_URL: http://billing-service:8087
+      PROVIDER_SERVICE_URL: http://provider-service:8088
+      ANALYTICS_SERVICE_URL: http://analytics-service:8089
+      INTEGRATION_SERVICE_URL: http://integration-service:8090
+      AUDIT_SERVICE_URL: http://audit-service:8091
+    ports:
+      - "${MONITOR_PORT:-9090}:9090"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      vehicle-service:
+        condition: service_started
+      charger-service:
+        condition: service_started
+      reservation-service:
+        condition: service_started
+      session-service:
+        condition: service_started
+      billing-service:
+        condition: service_started
+      provider-service:
+        condition: service_started
+      integration-service:
+        condition: service_started
+      analytics-service:
+        condition: service_started
+      audit-service:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://localhost:9090/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: http://${PUBLIC_HOST:-localhost}:${API_GATEWAY_PORT:-8080}/api/v1
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_51Tfg622Y47D685uCyQy0grd7dyHfNmwqU5Kg2WxOVvEqXvF04jvLCeYnJuOKTK0X2Xb4adaUctXIU00A9Mfnmi6j00RsLJIA0L
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: 539374766653-q0nb51l44871bq262mhi2k8m9n71aj0v.apps.googleusercontent.com
+        BACKEND_API_URL: http://api-gateway:8080
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_API_URL: http://${PUBLIC_HOST:-localhost}:${API_GATEWAY_PORT:-8080}/api/v1
+      BACKEND_API_URL: http://api-gateway:8080
+      NEXT_PUBLIC_ENABLE_MOCK_SESSION: "1"
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_51Tfg622Y47D685uCyQy0grd7dyHfNmwqU5Kg2WxOVvEqXvF04jvLCeYnJuOKTK0X2Xb4adaUctXIU00A9Mfnmi6j00RsLJIA0L
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: 539374766653-q0nb51l44871bq262mhi2k8m9n71aj0v.apps.googleusercontent.com
+      NEXT_PUBLIC_WEB3FORMS_KEY: replace-with-web3forms-key
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+      monitor-service:
+        condition: service_started
+
+volumes:
+  pgdata:

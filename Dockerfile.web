@@ -1,0 +1,52 @@
+FROM node:22-bookworm-slim AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY apps/web/package.json apps/web/package.json
+COPY services/api-gateway/package.json services/api-gateway/package.json
+COPY services/auth-service/package.json services/auth-service/package.json
+COPY services/user-service/package.json services/user-service/package.json
+COPY services/vehicle-service/package.json services/vehicle-service/package.json
+COPY services/charger-service/package.json services/charger-service/package.json
+COPY services/reservation-service/package.json services/reservation-service/package.json
+COPY services/session-service/package.json services/session-service/package.json
+COPY services/billing-service/package.json services/billing-service/package.json
+COPY services/provider-service/package.json services/provider-service/package.json
+COPY services/integration-service/package.json services/integration-service/package.json
+COPY services/analytics-service/package.json services/analytics-service/package.json
+COPY services/audit-service/package.json services/audit-service/package.json
+COPY services/monitor-service/package.json services/monitor-service/package.json
+COPY tools/cli-client/package.json tools/cli-client/package.json
+
+RUN npm ci
+
+COPY apps/web ./apps/web
+
+ARG NEXT_PUBLIC_API_URL=http://localhost:8080/api/v1
+ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_51Tfg622Y47D685uCyQy0grd7dyHfNmwqU5Kg2WxOVvEqXvF04jvLCeYnJuOKTK0X2Xb4adaUctXIU00A9Mfnmi6j00RsLJIA0L
+ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID=""
+ARG BACKEND_API_URL=http://api-gateway:8080
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID
+ENV BACKEND_API_URL=$BACKEND_API_URL
+
+RUN npm run build:web
+
+FROM node:22-bookworm-slim AS runner
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+
+COPY --from=builder /app/package.json /app/package-lock.json ./
+COPY --from=builder /app/apps/web/package.json apps/web/package.json
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/apps/web/.next apps/web/.next
+COPY --from=builder /app/apps/web/public apps/web/public
+
+EXPOSE 3000
+
+CMD ["npm", "--prefix", "apps/web", "run", "start"]

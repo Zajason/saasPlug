@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ConnectorType {
+  CCS
+  CHADEMO 
+  TYPE2
+  TYPE1
+  SCHUKO
+}
+
+enum CarColor {
+  RED
+  BLUE
+  YELLOW
+  WHITE
+  BLACK
+  SILVER
+  GREY
+  GREEN
+  ORANGE
+  PURPLE
+}
+
+model Car {
+  id               Int             @id @default(autoincrement())
+  brand            String
+  model            String
+  variant          String?
+  usableBatteryKWh Float
+  acMaxKW          Float
+  dcMaxKW          Float
+  dcChargingCurve  Json 
+  dcCurveIsDefault Boolean         @default(true)
+  dcPorts          ConnectorType[] 
+  acPorts          ConnectorType[] 
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+}
+
+model CarOwnership {
+  id        Int      @id @default(autoincrement())
+  userId    Int      // Reference ID
+  carId     Int      
+  color     CarColor
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([carId])
+}

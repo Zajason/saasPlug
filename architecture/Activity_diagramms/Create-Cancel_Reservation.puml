@@ -1,0 +1,33 @@
+@startuml
+skinparam style strictuml
+|EVUser|
+|saasPlug System|
+|External ProviderAPI|
+|EVUser|
+start
+:Select Charger;
+:CreateReservation;
+|saasPlug System|
+:Check Availability via API;
+|External ProviderAPI|
+:reservation API;
+|saasPlug System|
+if (Available?) then (yes)
+  :Confirm Reservation;
+  :Log Billable Transaction;
+  |EVUser|
+  split
+    :Arrive at Charger;
+    stop
+  split again
+    :CancelReservation;
+    |saasPlug System|
+    :Update ReservationStatus;
+    stop
+  end split
+else (no)
+  |saasPlug System|
+  :Notify User (Unavailable);
+  stop
+endif
+@enduml

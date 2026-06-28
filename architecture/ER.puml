@@ -1,0 +1,535 @@
+@startuml
+skinparam classAttributeIconSize 0
+skinparam monochrome true
+skinparam linetype ortho
+skinparam nodesep 50
+skinparam ranksep 60
+
+title saasPlug – Entity-Relationship Diagram (aligned with prisma-client/schema.prisma)
+
+' =====================================================================
+' ENUMS  (exactly as defined in schema.prisma)
+' =====================================================================
+
+enum Role {
+    EV_USER
+    PROVIDER_ADMIN
+    PLATFORM_OPERATOR
+}
+
+enum CarColor {
+    RED
+    BLUE
+    YELLOW
+    WHITE
+    BLACK
+    SILVER
+    GREY
+    GREEN
+    ORANGE
+    PURPLE
+}
+
+enum ChargerStatus {
+    AVAILABLE
+    IN_USE
+    OUTAGE
+}
+
+enum ConnectorType {
+    CCS
+    CHADEMO
+    TYPE2
+    TYPE1
+    SCHUKO
+}
+
+enum ReservationStatus {
+    ACTIVE
+    EXPIRED
+    CANCELLED
+}
+
+enum SessionStatus {
+    RUNNING
+    COMPLETED
+    AUTO_STOPPED
+    USER_STOPPED
+    INSUFFICIENT_FUNDS
+}
+
+enum PaymentStatus {
+    PREAUTHORIZED
+    CAPTURED
+    CANCELLED
+    FAILED
+}
+
+enum ProviderStatus {
+    PENDING
+    ACTIVE
+    SUSPENDED
+}
+
+enum SubscriptionStatus {
+    ACTIVE
+    PAST_DUE
+    CANCELLED
+}
+
+enum ProviderInvoiceStatus {
+    DRAFT
+    OPEN
+    PAID
+    OVERDUE
+    CANCELLED
+}
+
+enum ProviderPaymentStatus {
+    PENDING
+    SUCCEEDED
+    FAILED
+    CANCELLED
+}
+
+enum ExportStatus {
+    PENDING
+    PROCESSING
+    COMPLETED
+    FAILED
+}
+
+enum ExportFormat {
+    CSV
+    JSON
+}
+
+' =====================================================================
+' IDENTITY / AUTH  (AuthService / UserService)
+' =====================================================================
+
+entity User {
+    * id : Int <<PK>>
+    --
+    * email : String <<unique>>
+    password : String
+    googleId : String <<unique>>
+    * authProvider : String
+    firstName : String
+    lastName : String
+    phone : String
+    * role : Role
+    stripeCustomerId : String <<unique>>
+    preferences : Json
+    * outstandingBalanceEur : Decimal
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+' =====================================================================
+' VEHICLES  (VehicleService)
+' =====================================================================
+
+entity Car {
+    * id : Int <<PK>>
+    --
+    * brand : String
+    * model : String
+    variant : String
+    * usableBatteryKWh : Float
+    * acMaxKW : Float
+    * dcMaxKW : Float
+    * dcChargingCurve : Json
+    * dcCurveIsDefault : Boolean
+    dcPorts : ConnectorType[]
+    acPorts : ConnectorType[]
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity CarOwnership {
+    * id : Int <<PK>>
+    --
+    * userId : Int <<FK>>
+    * carId : Int <<FK>>
+    * color : CarColor
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+' =====================================================================
+' CHARGING  (ChargerService)
+' =====================================================================
+
+entity Charger {
+    * id : Int <<PK>>
+    --
+    * providerName : String
+    providerId : Int <<FK>>
+    * name : String
+    address : String
+    * lat : Decimal(9,6)
+    * lng : Decimal(9,6)
+    * connectorType : ConnectorType
+    * maxKW : Float
+    * status : ChargerStatus
+    pricingProfileId : Int <<FK>>
+    * kwhprice : Float
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity PricingProfile {
+    * id : Int <<PK>>
+    --
+    * name : String <<unique>>
+    * rulesJson : Json
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity WholesalePricePoint {
+    * id : Int <<PK>>
+    --
+    * ts : DateTime <<unique>>
+    * priceEurPerKWh : Decimal(8,5)
+}
+
+' =====================================================================
+' RESERVATIONS  (ReservationService)
+' =====================================================================
+
+entity Reservation {
+    * id : Int <<PK>>
+    --
+    * userId : Int <<FK>>
+    * chargerId : Int <<FK>>
+    * startsAt : DateTime
+    * expiresAt : DateTime
+    * status : ReservationStatus
+    paymentIntentId : String
+    * createdAt : DateTime
+}
+
+' =====================================================================
+' SESSIONS  (SessionService)
+' =====================================================================
+
+entity Session {
+    * id : Int <<PK>>
+    --
+    * userId : Int <<FK>>
+    * chargerId : Int <<FK>>
+    reservationId : Int <<FK, unique>>
+    * startedAt : DateTime
+    endedAt : DateTime
+    * kWh : Float
+    maxKWh : Float
+    avgKW : Float
+    pricePerKWh : Decimal(8,5)
+    costEur : Decimal(10,2)
+    * status : SessionStatus
+    * createdAt : DateTime
+}
+
+' =====================================================================
+' BILLING – USER SIDE  (BillingService)
+' =====================================================================
+
+entity PaymentMethod {
+    * id : Int <<PK>>
+    --
+    * userId : Int <<FK>>
+    * provider : String
+    * tokenLast4 : String
+    stripePaymentMethodId : String <<unique>>
+    * status : String
+    * createdAt : DateTime
+}
+
+entity CustomerBilling {
+    * userId : Int <<PK>>
+    --
+    stripeCustomerId : String <<unique>>
+    * outstandingBalanceEur : Decimal
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity PaymentAuth {
+    * id : Int <<PK>>
+    --
+    * userId : Int <<FK>>
+    * sessionId : Int <<FK, unique>>
+    * amountEur : Decimal(10,2)
+    providerRef : String
+    * status : PaymentStatus
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity Invoice {
+    * id : Int <<PK>>
+    --
+    * userId : Int <<FK>>
+    * sessionId : Int <<FK, unique>>
+    * pdfUrl : String
+    * totalEur : Decimal(10,2)
+    * createdAt : DateTime
+}
+
+' =====================================================================
+' PROVIDER / SaaS  (ProviderService / BillingService)
+' =====================================================================
+
+entity Provider {
+    * id : Int <<PK>>
+    --
+    * name : String
+    legalName : String
+    * contactEmail : String <<unique>>
+    contactPhone : String
+    country : String
+    * status : ProviderStatus
+    stripeCustomerId : String <<unique>>
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity ProviderAccount {
+    * id : Int <<PK>>
+    --
+    * providerId : Int <<FK>>
+    * userId : Int <<FK, unique>>
+    * role : String
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity ProviderApiConfig {
+    * id : Int <<PK>>
+    --
+    * providerId : Int <<FK>>
+    * externalProvider : String
+    * baseUrl : String
+    * apiKey : String
+    * enabled : Boolean
+    lastSyncedAt : DateTime
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity ProviderCharger {
+    * id : Int <<PK>>
+    --
+    * providerId : Int <<FK>>
+    * externalProvider : String
+    * externalId : String
+    chargerId : Int <<FK>>
+    * lastSyncedAt : DateTime
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity ProviderPlan {
+    * id : Int <<PK>>
+    --
+    * code : String <<unique>>
+    * name : String
+    * monthlyFeeEur : Decimal(10,2)
+    * perSessionFeeEur : Decimal(10,4)
+    features : Json
+    * active : Boolean
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity ProviderSubscription {
+    * id : Int <<PK>>
+    --
+    * providerId : Int <<FK>>
+    * planId : Int <<FK>>
+    * status : SubscriptionStatus
+    stripeSubscriptionId : String <<unique>>
+    stripePriceId : String
+    currentPeriodStart : DateTime
+    currentPeriodEnd : DateTime
+    * startedAt : DateTime
+    endedAt : DateTime
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity ProviderInvoice {
+    * id : Int <<PK>>
+    --
+    * providerId : Int
+    * invoiceNumber : String <<unique>>
+    * periodStart : DateTime
+    * periodEnd : DateTime
+    * status : ProviderInvoiceStatus
+    * subtotalEur : Decimal(10,2)
+    * taxEur : Decimal(10,2)
+    * totalEur : Decimal(10,2)
+    * dueDate : DateTime
+    paidAt : DateTime
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity ProviderUsageRecord {
+    * id : Int <<PK>>
+    --
+    * providerId : Int
+    invoiceId : Int <<FK>>
+    * sourceType : String
+    sourceId : Int
+    * quantity : Int
+    * amountEur : Decimal(10,2)
+    * occurredAt : DateTime
+    metadata : Json
+    * createdAt : DateTime
+}
+
+entity ProviderPayment {
+    * id : Int <<PK>>
+    --
+    * providerId : Int
+    * invoiceId : Int <<FK>>
+    * amountEur : Decimal(10,2)
+    providerRef : String
+    * status : ProviderPaymentStatus
+    paidAt : DateTime
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+' =====================================================================
+' ANALYTICS / EXPORT  (AnalyticsService)
+' =====================================================================
+
+entity AggregatedMetric {
+    * id : Int <<PK>>
+    --
+    providerId : Int
+    chargerId : Int
+    * metricName : String
+    * value : Decimal(10,2)
+    * timeBucket : DateTime
+    * period : String
+    * createdAt : DateTime
+}
+
+entity ExportJob {
+    * id : Int <<PK>>
+    --
+    providerId : Int <<FK>>
+    requestedById : Int <<FK>>
+    * scope : String
+    * format : ExportFormat
+    * status : ExportStatus
+    fileName : String
+    downloadUrl : String
+    * parameters : Json
+    resultJson : Json
+    errorMessage : String
+    * createdAt : DateTime
+    * updatedAt : DateTime
+    completedAt : DateTime
+}
+
+' =====================================================================
+' INTEGRATION / AUDIT  (IntegrationService / AuditService)
+' =====================================================================
+
+entity WebhookSubscription {
+    * id : Int <<PK>>
+    --
+    * providerId : Int <<FK>>
+    * url : String
+    * secret : String
+    * eventTypes : String[]
+    * createdAt : DateTime
+    * updatedAt : DateTime
+}
+
+entity WebhookEvent {
+    * id : Int <<PK>>
+    --
+    * subscriptionId : Int <<FK>>
+    * type : String
+    * payloadJson : Json
+    * deliveryStatus : String
+    * retries : Int
+    * createdAt : DateTime
+}
+
+entity AuditEvent {
+    * id : Int <<PK>>
+    --
+    * eventId : String <<unique>>
+    * routingKey : String
+    * eventType : String
+    * sourceService : String
+    actorUserId : Int
+    providerId : Int
+    entityType : String
+    entityId : Int
+    * payloadJson : Json
+    metadata : Json
+    * occurredAt : DateTime
+    * receivedAt : DateTime
+}
+
+' =====================================================================
+' RELATIONSHIPS  (from prisma @relation definitions)
+' =====================================================================
+
+' Identity / vehicles
+User ||--o{ CarOwnership : "owns"
+Car  ||--o{ CarOwnership : "referenced by"
+
+' Charging
+Provider ||--o{ Charger : "manages"
+Charger  }o--o| PricingProfile : "priced by"
+
+' Reservations / sessions
+User    ||--o{ Reservation : "creates"
+Charger ||--o{ Reservation : "targeted by"
+Reservation ||--o| Session  : "may start"
+User    ||--o{ Session : "starts"
+Charger ||--o{ Session : "hosts"
+
+' Billing – user side
+User    ||--o{ PaymentMethod : "owns"
+Session ||--o| PaymentAuth   : "authorised via"
+Session ||--o| Invoice       : "generates"
+User    ||--o{ PaymentAuth    : "holds"
+User    ||--o{ Invoice        : "billed to"
+
+' Provider / SaaS
+Provider ||--o{ ProviderAccount      : "has"
+ProviderAccount }o--|| User          : "linked to"
+Provider ||--o{ ProviderApiConfig    : "configured by"
+Provider ||--o{ ProviderCharger      : "syncs"
+ProviderCharger }o--o| Charger       : "maps to"
+Provider ||--o{ ProviderSubscription : "subscribes"
+ProviderSubscription }o--|| ProviderPlan : "using"
+Provider ||--o{ ExportJob            : "requests"
+ExportJob }o--o| User                : "requested by"
+
+' Provider billing
+ProviderInvoice ||--o{ ProviderUsageRecord : "itemised by"
+ProviderInvoice ||--o{ ProviderPayment     : "settled by"
+
+' Integration / audit
+Provider ||--o{ WebhookSubscription : "subscribes"
+WebhookSubscription ||--o{ WebhookEvent : "delivers"
+
+note bottom of CustomerBilling
+CustomerBilling, AggregatedMetric and AuditEvent
+hold no DB-level foreign keys in schema.prisma
+(referenced by id only, across service boundaries).
+end note
+
+@enduml

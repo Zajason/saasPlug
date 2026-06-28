@@ -1,0 +1,248 @@
+openapi: 3.1.0
+info:
+  title: greenPlug API
+  version: 1.0.0
+  description: Provider-specific API contract for greenPlug.
+servers:
+- url: https://davinci.softlab.ntua.gr/saas26/greenPlug/api
+paths:
+  /chargingPoints:
+    get:
+      tags:
+      - greenPlug
+      summary: List charging points
+      description: List all `greenPlug` charging points.
+      operationId: list_points_greenPlug_api_chargingPoints_get
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GreenPoint'
+                title: Response List Points Greenplug Api Chargingpoints Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /chargingPoints/{pointid}:
+    get:
+      tags:
+      - greenPlug
+      summary: Get charging point
+      description: Get one `greenPlug` charging point by `pointid`.
+      operationId: get_point_greenPlug_api_chargingPoints__pointid__get
+      parameters:
+      - name: pointid
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Pointid
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GreenPoint'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /chargingPoints/{pointid}/reservations:
+    post:
+      tags:
+      - greenPlug
+      summary: Create reservation
+      description: Reserve a `greenPlug` charging point.
+      operationId: reserve_point_endpoint_greenPlug_api_chargingPoints__pointid__reservations_post
+      parameters:
+      - name: pointid
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Pointid
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GreenReservationRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GreenReserveResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    GreenPoint:
+      properties:
+        id:
+          type: integer
+          title: Id
+        providerName:
+          type: string
+          const: greenPlug
+          title: Providername
+        state:
+          type: string
+          title: State
+        reservedUntil:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reserveduntil
+        kwhRateEur:
+          type: number
+          title: Kwhrateeur
+        cap:
+          type: integer
+          title: Cap
+        connector:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Connector
+        locationName:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Locationname
+        address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Address
+        coords:
+          $ref: '#/components/schemas/GreenCoords'
+      type: object
+      required:
+      - id
+      - providerName
+      - state
+      - kwhRateEur
+      - cap
+      - coords
+      title: GreenPoint
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    GreenCoords:
+      properties:
+        long:
+          type: number
+          title: Long
+        lat:
+          type: number
+          title: Lat
+      type: object
+      required:
+      - long
+      - lat
+      title: GreenCoords
+    GreenReservationRequest:
+      properties:
+        duration:
+          type: integer
+          minimum: 1.0
+          title: Duration
+          default: 60
+      type: object
+      title: GreenReservationRequest
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    GreenReserveResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        providerName:
+          type: string
+          const: greenPlug
+          title: Providername
+        state:
+          type: string
+          title: State
+        reservedUntil:
+          type: string
+          title: Reserveduntil
+        kwhRateEur:
+          type: number
+          title: Kwhrateeur
+        coords:
+          $ref: '#/components/schemas/GreenCoords'
+      type: object
+      required:
+      - id
+      - providerName
+      - state
+      - reservedUntil
+      - kwhRateEur
+      - coords
+      title: GreenReserveResponse

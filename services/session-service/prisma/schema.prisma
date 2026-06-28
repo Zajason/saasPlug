@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ReservationStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum SessionStatus {
+  RUNNING
+  COMPLETED
+  AUTO_STOPPED
+  USER_STOPPED
+  INSUFFICIENT_FUNDS
+}
+
+model Reservation {
+  id              Int               @id @default(autoincrement())
+  userId          Int               // Reference ID
+  chargerId       Int               // Reference ID
+  startsAt        DateTime
+  expiresAt       DateTime
+  status          ReservationStatus @default(ACTIVE)
+  paymentIntentId String?
+  createdAt       DateTime          @default(now())
+
+  @@index([userId, status])
+}
+
+model Session {
+  id            Int           @id @default(autoincrement())
+  userId        Int           // Reference ID
+  chargerId     Int           // Reference ID
+  reservationId Int?          @unique 
+
+  startedAt   DateTime
+  endedAt     DateTime?
+  kWh         Float         @default(0)
+  maxKWh      Float?        
+  avgKW       Float?
+  pricePerKWh Decimal?      @db.Decimal(8, 5)
+  costEur     Decimal?      @db.Decimal(10, 2)
+  status      SessionStatus @default(RUNNING)
+  createdAt   DateTime      @default(now())
+
+  @@index([userId, status])
+  @@index([chargerId, status])
+}

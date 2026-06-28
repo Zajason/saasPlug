@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProviderStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum Role {
+  EV_USER
+  PROVIDER_ADMIN
+  PLATFORM_OPERATOR
+}
+
+enum ChargerStatus {
+  AVAILABLE
+  IN_USE
+  OUTAGE
+}
+
+enum ConnectorType {
+  CCS
+  CHADEMO
+  TYPE2
+  TYPE1
+  SCHUKO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+model User {
+  id                    Int      @id @default(autoincrement())
+  email                 String   @unique
+  password              String?
+  googleId              String?  @unique
+  authProvider          String   @default("LOCAL")
+  firstName             String?
+  lastName              String?
+  phone                 String?
+  role                  Role     @default(EV_USER)
+  stripeCustomerId      String?  @unique
+  preferences           Json?
+  outstandingBalanceEur Decimal  @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Provider {
+  id               Int            @id @default(autoincrement())
+  name             String
+  legalName        String?
+  contactEmail     String         @unique
+  contactPhone     String?
+  country          String?
+  status           ProviderStatus @default(PENDING)
+  stripeCustomerId String?        @unique
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model ProviderAccount {
+  id         Int      @id @default(autoincrement())
+  providerId Int      // Reference to the Provider above
+  userId     Int      @unique // Reference ID -> User Service
+  role       String   @default("OWNER") // e.g., OWNER | MEMBER
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Ensures a user isn't added to the same provider twice
+  @@unique([providerId, userId]) 
+  @@index([providerId])
+}
+
+model ProviderPlan {
+  id               Int      @id @default(autoincrement())
+  code             String   @unique
+  name             String
+  monthlyFeeEur    Decimal  @default(0) @db.Decimal(10, 2)
+  perSessionFeeEur Decimal  @default(0) @db.Decimal(10, 4)
+  features         Json?
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model ProviderSubscription {
+  id                   Int                @id @default(autoincrement())
+  providerId           Int
+  planId               Int
+  status               SubscriptionStatus @default(ACTIVE)
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  startedAt            DateTime           @default(now())
+  endedAt              DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@index([providerId, status])
+}
+
+model Charger {
+  id               Int           @id @default(autoincrement())
+  providerName     String        @default("Unknown")
+  providerId       Int?
+  name             String
+  address          String?
+  lat              Decimal       @db.Decimal(9, 6)
+  lng              Decimal       @db.Decimal(9, 6)
+  connectorType    ConnectorType
+  maxKW            Float
+  status           ChargerStatus @default(AVAILABLE)
+  pricingProfileId Int?
+  kwhprice         Float         @default(0.25)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([status])
+  @@index([lat, lng])
+  @@index([providerId])
+}

@@ -1,0 +1,354 @@
+@startuml
+skinparam classAttributeIconSize 0
+skinparam monochrome true
+skinparam linetype ortho
+
+package "Enums" {
+    enum Role {
+        EV_USER
+        PROVIDER_ADMIN
+        PLATFORM_OPERATOR
+    }
+    
+    enum ChargerStatus {
+        AVAILABLE
+        IN_USE
+        OUTAGE
+        RESERVED
+        MALFUNCTION
+        OFFLINE
+    }
+    
+    enum ConnectorType {
+        CCS
+        CHADEMO
+        TYPE2
+        TYPE1
+        SCHUKO
+    }
+    
+    enum ReservationStatus {
+        ACTIVE
+        EXPIRED
+        CANCELLED
+    }
+    
+    enum SessionStatus {
+        RUNNING
+        COMPLETED
+        AUTO_STOPPED
+        USER_STOPPED
+        INSUFFICIENT_FUNDS
+    }
+    
+    enum PaymentStatus {
+        PREAUTHORIZED
+        CAPTURED
+        CANCELLED
+        FAILED
+    }
+    
+    enum CarColor {
+        RED
+        BLUE
+        YELLOW
+        WHITE
+        BLACK
+        SILVER
+        GREY
+        GREEN
+        ORANGE
+        PURPLE
+    }
+
+    enum ProviderStatus {
+        PENDING
+        ACTIVE
+        SUSPENDED
+        DISABLED
+    }
+
+    enum SubscriptionStatus {
+        TRIAL
+        ACTIVE
+        PAST_DUE
+        CANCELLED
+    }
+
+    enum ProviderInvoiceStatus {
+        PENDING
+        PAID
+        OVERDUE
+        CANCELLED
+    }
+
+    enum ProviderPaymentStatus {
+        PENDING
+        SUCCEEDED
+        FAILED
+        CANCELLED
+    }
+
+    enum ExportStatus {
+        PENDING
+        RUNNING
+        COMPLETED
+        FAILED
+    }
+
+    enum ExportFormat {
+        CSV
+        JSON
+    }
+}
+
+package "DTOs - Identity & Vehicles" {
+    class UserDto {
+        + id: Integer
+        + email: String
+        + firstName: String
+        + lastName: String
+        + phone: String
+        + outstandingBalanceEur: Float
+        + createdAt: String
+    }
+    
+    class CarDto {
+        + id: Integer
+        + brand: String
+        + model: String
+        + usableBatteryKWh: Float
+        + acMaxKW: Float
+        + dcMaxKW: Float
+        + dcPorts: ConnectorType[]
+    }
+    
+    class CarOwnershipDto {
+        + id: Integer
+        + userId: Integer
+        + carId: Integer
+        + carColor: CarColor
+        + createdAt: String
+    }
+}
+
+package "DTOs - Charging & Catalog" {
+    class ChargerDto {
+        + pointId: String
+        + providerName: String
+        + name: String
+        + lat: Float
+        + lon: Float
+        + cap: Integer
+        + kWhPrice: Float
+    }
+    
+    class ChargerSummaryDto
+    class ChargerDetailsDto
+    
+    class PricingProfileDto {
+        + id: Integer
+        + providerName: String
+        + currency: String
+        + basePricePerKWh: Float
+    }
+    
+    class WholesalePricePointDto {
+        + id: Integer
+        + startsAt: String
+        + endsAt: String
+        + pricePerKWh: Float
+    }
+}
+
+package "DTOs - Reservations & Sessions" {
+    class ReservationDto {
+        + id: Integer
+        + userId: Integer
+        + chargerId: Integer
+        + startsAt: String
+        + reservationEndTime: String
+        + paymentIntentId: String
+    }
+    
+    class ReservationSummaryDto
+    class ReservationDetailsDto
+    
+    class SessionDto {
+        + id: Integer
+        + userId: Integer
+        + chargerId: Integer
+        + reservationId: Integer
+        + startedAt: String
+        + endedAt: String
+        + startSoc: Integer
+        + endSoc: Integer
+        + totalKWh: Float
+        + pricePerKWh: Float
+        + amount: Float
+    }
+}
+
+package "DTOs - Billing (User-side)" {
+    class PaymentMethodDto {
+        + id: Integer
+        + userId: Integer
+        + provider: String
+        + tokenLast4: String
+    }
+
+    class PaymentAuthDto {
+        + id: Integer
+        + sessionId: Integer
+        + status: PaymentStatus
+        + authorizedAmountEur: Float
+    }
+
+    class InvoiceDto {
+        + id: Integer
+        + userId: Integer
+        + sessionId: Integer
+        + pdfUrl: String
+        + totalEur: Float
+    }
+}
+
+package "DTOs - Provider / SaaS & Analytics" {
+    class ProviderDto {
+        + id: Integer
+        + name: String
+        + status: ProviderStatus
+    }
+
+    class ProviderInvoiceDto {
+        + id: Integer
+        + providerId: Integer
+        + totalEur: Float
+        + status: ProviderInvoiceStatus
+    }
+
+    class ProviderAnalyticsReportDto {
+        + totalSessions: Integer
+        + totalRevenueEur: Float
+        + period: String
+    }
+
+    class GlobalAnalyticsReportDto {
+        + totalProviders: Integer
+        + totalSessions: Integer
+        + totalRevenueEur: Float
+        + period: String
+    }
+
+    class ExportJobDto {
+        + id: Integer
+        + providerId: Integer
+        + format: ExportFormat
+        + status: ExportStatus
+        + fileUrl: String
+    }
+
+    class ProviderApiConfigDto {
+        + id: Integer
+        + providerId: Integer
+        + baseUrl: String
+        + apiKey: String
+        + clientSecret: String
+    }
+
+    class ProviderSubscriptionDto {
+        + id: Integer
+        + providerId: Integer
+        + planName: String
+        + status: SubscriptionStatus
+        + startsAt: String
+        + endsAt: String
+    }
+
+    class InvoiceLineDto {
+        + id: Integer
+        + providerInvoiceId: Integer
+        + description: String
+        + amountEur: Float
+    }
+
+    class ProviderPaymentDto {
+        + id: Integer
+        + providerInvoiceId: Integer
+        + amountEur: Float
+        + status: ProviderPaymentStatus
+        + gatewayTransactionId: String
+        + createdAt: String
+    }
+
+    class UsageMetricDto {
+        + chargerId: Integer
+        + date: String
+        + sessionsCount: Integer
+        + totalKWh: Float
+        + totalRevenueEur: Float
+    }
+}
+
+package "DTOs - Integration & Audit" {
+    class WebhookEventDto {
+        + id: Integer
+        + eventType: String
+        + deliveredAt: String
+    }
+
+    class AuditEventDto {
+        + id: Integer
+        + eventType: String
+        + createdAt: String
+    }
+}
+
+' ================= Relationships =================
+
+' Inheritance / specialization pattern
+ChargerSummaryDto --|> ChargerDto
+ChargerDetailsDto --|> ChargerDto
+ReservationSummaryDto --|> ReservationDto
+ReservationDetailsDto --|> ReservationDto
+
+' Data associations
+UserDto --> Role
+CarOwnershipDto --> UserDto
+CarOwnershipDto --> CarDto
+
+ChargerDto --> ChargerStatus
+ChargerDto --> ConnectorType
+PricingProfileDto --> WholesalePricePointDto
+
+ReservationDto --> UserDto
+ReservationDto --> ChargerDto
+ReservationDto --> ReservationStatus
+
+SessionDto --> UserDto
+SessionDto --> ChargerDto
+SessionDto --> ReservationDto
+SessionDto --> SessionStatus
+
+PaymentMethodDto --> UserDto
+PaymentAuthDto --> SessionDto
+PaymentAuthDto --> PaymentStatus
+InvoiceDto --> SessionDto
+InvoiceDto --> UserDto
+
+ProviderDto --> ProviderStatus
+ProviderInvoiceDto --> ProviderDto
+ProviderInvoiceDto --> ProviderInvoiceStatus
+ProviderInvoiceDto --> InvoiceLineDto
+ProviderAnalyticsReportDto --> ProviderDto
+ProviderApiConfigDto --> ProviderDto
+ProviderSubscriptionDto --> SubscriptionStatus
+ProviderSubscriptionDto --> ProviderDto
+ProviderPaymentDto --> ProviderPaymentStatus
+ProviderPaymentDto --> ProviderInvoiceDto
+ExportJobDto --> ProviderDto
+ExportJobDto --> ExportStatus
+ExportJobDto --> ExportFormat
+UsageMetricDto --> ChargerDto
+
+@enduml

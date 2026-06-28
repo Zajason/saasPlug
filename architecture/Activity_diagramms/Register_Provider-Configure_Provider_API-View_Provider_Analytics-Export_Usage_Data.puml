@@ -1,0 +1,22 @@
+@startuml
+skinparam style strictuml
+|ProviderAdmin|
+|saasPlug System|
+|ProviderAdmin|
+start
+:RegisterProvider;
+:ConfigureProviderAPI;
+|saasPlug System|
+:Verify API Connection;
+:Save ProviderApiConfig;
+|ProviderAdmin|
+:ViewProviderAnalytics;
+|saasPlug System|
+:Fetch Metrics (UsageMetric);
+:Generate ProviderAnalyticsReport;
+|ProviderAdmin|
+:ExportUsageData;
+|saasPlug System|
+:Generate CSV/JSON;
+stop
+@enduml

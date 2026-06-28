@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AuditEvent {
+  id            Int      @id @default(autoincrement())
+  eventId       String   @unique
+  routingKey    String
+  eventType     String
+  sourceService String
+  actorUserId   Int?
+  providerId    Int?
+  entityType    String?
+  entityId      Int?
+  payloadJson   Json
+  metadata      Json?
+  occurredAt    DateTime
+  receivedAt    DateTime @default(now())
+
+  @@index([routingKey])
+  @@index([eventType])
+  @@index([actorUserId])
+  @@index([providerId])
+  @@index([entityType, entityId])
+  @@index([occurredAt])
+}

@@ -1,0 +1,25 @@
+@startuml
+skinparam style strictuml
+|EVUser|
+|saasPlug System|
+|Google OAuth Provider|
+
+|EVUser|
+start
+:LoginWithGoogle;
+|saasPlug System|
+:Redirect to Google;
+|Google OAuth Provider|
+:Authenticate User;
+:Return OAuth Token;
+|saasPlug System|
+:Validate Token & Create Session;
+|EVUser|
+:SearchChargers;
+|saasPlug System|
+:Fetch Chargers from DB;
+:Display Map;
+|EVUser|
+:ViewChargerDetails;
+stop
+@enduml

@@ -1,0 +1,14 @@
+@startuml
+skinparam style strictuml
+|PlatformOperator|
+|saasPlug System|
+|PlatformOperator|
+start
+:ViewGlobalAnalytics;
+|saasPlug System|
+:Aggregate Data from All Providers;
+:Generate GlobalAnalyticsReport;
+|PlatformOperator|
+:Review Platform Performance;
+stop
+@enduml

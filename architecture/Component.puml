@@ -1,0 +1,218 @@
+@startuml Component
+allowmixing
+skinparam monochrome true
+skinparam linetype ortho
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+package "Client Portals" {
+  component EVUserPortal <<portal>>
+  component ProviderPortal <<portal>>
+  component OperatorPortal <<portal>>
+}
+
+package "saasPlug Platform" {
+
+  package "Entry Layer" {
+    interface "REST API" as REST_API
+    component ApiGateway <<gateway>>
+  }
+
+  package "Core Business Services" {
+    interface IAuth
+    interface IUserProfile
+    interface IVehicleMgmt
+    interface IChargerSearch
+    interface IChargerAvailability
+    interface IReservationMgmt
+    interface ISessionMgmt
+    interface IBilling
+    interface IProviderMgmt
+
+    component AuthService <<microservice>>
+    component UserService <<microservice>>
+    component VehicleService <<microservice>>
+    component ChargerService <<microservice>>
+    component ReservationService <<microservice>>
+    component SessionService <<microservice>>
+    component BillingService <<microservice>>
+    component ProviderService <<microservice>>
+  }
+
+  package "Cross-Cutting / Downstream Services" {
+    interface IAnalytics
+    interface IExternalIntegration
+    interface IAuditLogging
+    interface IHealthCheck
+
+    component AnalyticsService <<reporting>>
+    component IntegrationService <<integration>>
+    component AuditService <<cross-cutting>>
+    component MonitorService <<monitoring>>
+  }
+
+  package "Infrastructure Components" {
+    component MessageBroker <<broker>>
+    component Cache <<cache>>
+  }
+}
+
+package "External Systems" {
+  component GoogleOAuthProvider <<external>>
+  component PaymentGateway <<external>>
+
+  package "ExternalProviderAPIs" {
+    component BluePlugAPI <<external>>
+    component GreenPlugAPI <<external>>
+    component RedPlugAPI <<external>>
+  }
+}
+
+' =========================
+' Portals -> Entry
+' =========================
+EVUserPortal ..> REST_API : <<use>>
+ProviderPortal ..> REST_API : <<use>>
+OperatorPortal ..> REST_API : <<use>>
+
+REST_API <|.. ApiGateway
+
+' =========================
+' Provided Interfaces
+' =========================
+IAuth <|.. AuthService
+IUserProfile <|.. UserService
+IVehicleMgmt <|.. VehicleService
+IChargerSearch <|.. ChargerService
+IChargerAvailability <|.. ChargerService
+IReservationMgmt <|.. ReservationService
+ISessionMgmt <|.. SessionService
+IBilling <|.. BillingService
+IProviderMgmt <|.. ProviderService
+
+IAnalytics <|.. AnalyticsService
+IExternalIntegration <|.. IntegrationService
+IAuditLogging <|.. AuditService
+
+' =========================
+' Gateway -> Core Services
+' =========================
+ApiGateway ..> IAuth : <<use>>
+ApiGateway ..> IUserProfile : <<use>>
+ApiGateway ..> IVehicleMgmt : <<use>>
+ApiGateway ..> IChargerSearch : <<use>>
+ApiGateway ..> IReservationMgmt : <<use>>
+ApiGateway ..> ISessionMgmt : <<use>>
+ApiGateway ..> IBilling : <<use>>
+ApiGateway ..> IProviderMgmt : <<use>>
+ApiGateway ..> IAnalytics : <<use>>
+
+' =========================
+' Internal Sync Dependencies
+' =========================
+ReservationService ..> IChargerAvailability : <<use>>
+SessionService ..> IChargerAvailability : <<use>>
+SessionService ..> IReservationMgmt : <<use>>
+BillingService ..> IProviderMgmt : <<use>>
+
+' =========================
+' Cross-Cutting Dependencies
+' =========================
+AuthService ..> IAuditLogging : <<use>>
+ReservationService ..> IAuditLogging : <<use>>
+SessionService ..> IAuditLogging : <<use>>
+BillingService ..> IAuditLogging : <<use>>
+ProviderService ..> IAuditLogging : <<use>>
+IntegrationService ..> IAuditLogging : <<use>>
+
+AnalyticsService ..> ISessionMgmt : <<use>>
+AnalyticsService ..> IProviderMgmt : <<use>>
+
+ChargerService ..> IExternalIntegration : <<use>>
+ReservationService ..> IExternalIntegration : <<use>>
+SessionService ..> IExternalIntegration : <<use>>
+ProviderService ..> IExternalIntegration : <<use>>
+
+' =========================
+' Messaging / Event-Driven
+' =========================
+ReservationService ..> MessageBroker : publish reservation events
+SessionService ..> MessageBroker : publish session events
+ProviderService ..> MessageBroker : publish provider events
+
+BillingService ..> MessageBroker : consume domain events
+AnalyticsService ..> MessageBroker : consume domain events
+AuditService ..> MessageBroker : consume domain events
+IntegrationService ..> MessageBroker : publish / consume provider sync events
+
+' =========================
+' Cache (Redis)
+' =========================
+ChargerService ..> Cache : charger availability cache
+ReservationService ..> Cache : reservation hold / lock
+SessionService ..> Cache : active session state
+ApiGateway ..> Cache : token / rate-limit cache
+
+' =========================
+' Health Monitoring
+' =========================
+ApiGateway ..|> IHealthCheck
+AuthService ..|> IHealthCheck
+UserService ..|> IHealthCheck
+VehicleService ..|> IHealthCheck
+ChargerService ..|> IHealthCheck
+ReservationService ..|> IHealthCheck
+SessionService ..|> IHealthCheck
+BillingService ..|> IHealthCheck
+ProviderService ..|> IHealthCheck
+AnalyticsService ..|> IHealthCheck
+IntegrationService ..|> IHealthCheck
+AuditService ..|> IHealthCheck
+
+MonitorService ..> IHealthCheck : poll /api/health
+MonitorService ..> Cache : TCP liveness probe
+MonitorService ..> MessageBroker : management API probe
+
+' =========================
+' External Systems
+' =========================
+AuthService ..> GoogleOAuthProvider : <<use>>
+BillingService ..> PaymentGateway : <<use>>
+
+IntegrationService ..> BluePlugAPI : <<use>>
+IntegrationService ..> GreenPlugAPI : <<use>>
+IntegrationService ..> RedPlugAPI : <<use>>
+
+' =========================
+' Notes
+' =========================
+note right of ApiGateway
+Single entry point for all portals.
+Routes client requests to internal microservices.
+end note
+
+note right of IntegrationService
+Handles ExternalProviderAPI communication,
+provider synchronization,
+and outbound webhooks.
+end note
+
+note right of MessageBroker
+RabbitMQ-style event backbone for
+loosely coupled internal communication.
+end note
+
+note right of AnalyticsService
+Generates provider analytics,
+global analytics, and export jobs.
+Export files are stored as job rows
+in the database (no object storage).
+end note
+
+note right of MonitorService
+Polls /api/health of every service plus
+Redis and RabbitMQ; exposes an aggregated
+health dashboard (port 9090 / MONITOR_PORT).
+end note
+
+@enduml

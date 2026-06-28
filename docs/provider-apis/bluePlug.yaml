@@ -1,0 +1,234 @@
+openapi: 3.1.0
+info:
+  title: bluePlug API
+  version: 1.0.0
+  description: Provider-specific API contract for bluePlug.
+servers:
+- url: https://davinci.softlab.ntua.gr/saas26/bluePlug/api
+paths:
+  /locations:
+    get:
+      tags:
+      - bluePlug
+      summary: List locations
+      description: List all `bluePlug` charging locations.
+      operationId: list_points_bluePlug_api_locations_get
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BluePoint'
+                title: Response List Points Blueplug Api Locations Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /location/{pointid}/status:
+    get:
+      tags:
+      - bluePlug
+      summary: Get location status
+      description: Get status for one `bluePlug` charger by `pointid`.
+      operationId: get_point_status_bluePlug_api_location__pointid__status_get
+      parameters:
+      - name: pointid
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Pointid
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BluePoint'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /location/{pointid}/hold:
+    post:
+      tags:
+      - bluePlug
+      summary: Hold charger
+      description: Reserve a `bluePlug` charger using a query parameter for minutes.
+      operationId: hold_point_bluePlug_api_location__pointid__hold_post
+      parameters:
+      - name: pointid
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Pointid
+      - name: minutes
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 60
+          title: Minutes
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlueReserveResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    BlueReserveResponse:
+      properties:
+        chargerId:
+          type: integer
+          title: Chargerid
+        providerName:
+          type: string
+          const: bluePlug
+          title: Providername
+        currentStatus:
+          type: string
+          title: Currentstatus
+        reservationEnd:
+          type: string
+          title: Reservationend
+        pricePerKwh:
+          type: number
+          title: Priceperkwh
+        geo:
+          items:
+            type: number
+          type: array
+          title: Geo
+      type: object
+      required:
+      - chargerId
+      - providerName
+      - currentStatus
+      - reservationEnd
+      - pricePerKwh
+      - geo
+      title: BlueReserveResponse
+    BluePoint:
+      properties:
+        chargerId:
+          type: integer
+          title: Chargerid
+        providerName:
+          type: string
+          const: bluePlug
+          title: Providername
+        currentStatus:
+          type: string
+          title: Currentstatus
+        reservationEnd:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reservationend
+        pricePerKwh:
+          type: number
+          title: Priceperkwh
+          default: 0.59
+        cap:
+          type: integer
+          title: Cap
+        connector:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Connector
+        locationName:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Locationname
+        address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Address
+        geo:
+          items:
+            type: number
+          type: array
+          title: Geo
+      type: object
+      required:
+      - chargerId
+      - providerName
+      - currentStatus
+      - cap
+      - geo
+      title: BluePoint
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError

@@ -1,0 +1,231 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ExportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ExportFormat {
+  CSV
+  JSON
+}
+
+enum ProviderStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum ChargerStatus {
+  AVAILABLE
+  IN_USE
+  OUTAGE
+}
+
+enum ConnectorType {
+  CCS
+  CHADEMO
+  TYPE2
+  TYPE1
+  SCHUKO
+}
+
+enum SessionStatus {
+  RUNNING
+  COMPLETED
+  AUTO_STOPPED
+  USER_STOPPED
+  INSUFFICIENT_FUNDS
+}
+
+enum ProviderInvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum ProviderPaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+model Provider {
+  id               Int            @id @default(autoincrement())
+  name             String
+  legalName        String?
+  contactEmail     String         @unique
+  contactPhone     String?
+  country          String?
+  status           ProviderStatus @default(PENDING)
+  stripeCustomerId String?        @unique
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model ProviderAccount {
+  id         Int      @id @default(autoincrement())
+  providerId Int
+  userId     Int      @unique
+  role       String   @default("OWNER")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([providerId, userId])
+  @@index([providerId])
+}
+
+model ProviderApiConfig {
+  id               Int       @id @default(autoincrement())
+  providerId       Int
+  externalProvider String
+  baseUrl          String
+  apiKey           String
+  enabled          Boolean   @default(true)
+  lastSyncedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([providerId, externalProvider])
+  @@index([providerId])
+}
+
+model Charger {
+  id               Int           @id @default(autoincrement())
+  providerName     String        @default("Unknown")
+  providerId       Int?
+  name             String
+  address          String?
+  lat              Decimal       @db.Decimal(9, 6)
+  lng              Decimal       @db.Decimal(9, 6)
+  connectorType    ConnectorType
+  maxKW            Float
+  status           ChargerStatus @default(AVAILABLE)
+  pricingProfileId Int?
+  kwhprice         Float         @default(0.25)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([status])
+  @@index([lat, lng])
+  @@index([providerId])
+}
+
+model Session {
+  id            Int           @id @default(autoincrement())
+  userId        Int
+  chargerId     Int
+  reservationId Int?          @unique
+  startedAt     DateTime
+  endedAt       DateTime?
+  kWh           Float         @default(0)
+  maxKWh        Float?
+  avgKW         Float?
+  pricePerKWh   Decimal?      @db.Decimal(8, 5)
+  costEur       Decimal?      @db.Decimal(10, 2)
+  status        SessionStatus @default(RUNNING)
+  createdAt     DateTime      @default(now())
+
+  @@index([userId, status])
+  @@index([chargerId, status])
+}
+
+model ProviderInvoice {
+  id            Int                   @id @default(autoincrement())
+  providerId    Int
+  invoiceNumber String                @unique
+  periodStart   DateTime
+  periodEnd     DateTime
+  status        ProviderInvoiceStatus @default(OPEN)
+  subtotalEur   Decimal               @db.Decimal(10, 2)
+  taxEur        Decimal               @default(0) @db.Decimal(10, 2)
+  totalEur      Decimal               @db.Decimal(10, 2)
+  dueDate       DateTime
+  paidAt        DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@index([providerId, status])
+  @@index([periodStart, periodEnd])
+}
+
+model ProviderUsageRecord {
+  id         Int      @id @default(autoincrement())
+  providerId Int
+  invoiceId  Int?
+  sourceType String
+  sourceId   Int?
+  quantity   Int      @default(1)
+  amountEur  Decimal  @db.Decimal(10, 2)
+  occurredAt DateTime
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([providerId, occurredAt])
+  @@index([invoiceId])
+}
+
+model ProviderPayment {
+  id          Int                   @id @default(autoincrement())
+  providerId  Int
+  invoiceId   Int
+  amountEur   Decimal               @db.Decimal(10, 2)
+  providerRef String?
+  status      ProviderPaymentStatus @default(PENDING)
+  paidAt      DateTime?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@index([providerId, status])
+  @@index([invoiceId])
+}
+
+// Handles asynchronous report generation
+model ExportJob {
+  id            Int          @id @default(autoincrement())
+  providerId    Int?         // Reference ID -> Provider Service
+  requestedById Int?         // Reference ID -> User Service
+  scope         String       @default("PROVIDER") // e.g., PROVIDER | GLOBAL
+  format        ExportFormat @default(CSV)
+  status        ExportStatus @default(PENDING)
+  fileName      String?
+  downloadUrl   String?
+  parameters    Json         // e.g., { "dateRange": "2026-06", "type": "SESSIONS" }
+  resultJson    Json?
+  errorMessage  String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  completedAt   DateTime?
+
+  @@index([providerId, status])
+  @@index([requestedById])
+  @@index([createdAt])
+}
+
+// Stores pre-calculated metrics for fast dashboard loading
+model AggregatedMetric {
+  id         Int      @id @default(autoincrement())
+  providerId Int?     // Reference ID (Null if it's a global platform metric)
+  chargerId  Int?     // Reference ID (Null if it's a provider-wide metric)
+  metricName String   // e.g., "TOTAL_KWH", "REVENUE_EUR", "SESSION_COUNT"
+  value      Decimal  @db.Decimal(10, 2)
+  timeBucket DateTime // e.g., 2026-06-23 00:00:00 (for daily aggregation)
+  period     String   // e.g., "DAILY", "WEEKLY", "MONTHLY"
+  createdAt  DateTime @default(now())
+
+  // Fast lookups for dashboard graphs
+  @@index([providerId, metricName, timeBucket])
+  @@index([chargerId, metricName])
+}

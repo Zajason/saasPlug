@@ -1,0 +1,20 @@
+@startuml
+skinparam style strictuml
+|ProviderAdmin|
+|saasPlug System|
+|PaymentGateway|
+|ProviderAdmin|
+start
+:ViewProviderInvoice;
+|saasPlug System|
+:Fetch ProviderInvoice (SaaS billing);
+|ProviderAdmin|
+:PayProviderInvoice;
+|saasPlug System|
+:Initiate SaaS Payment;
+|PaymentGateway|
+:Process SaaS Payment;
+|saasPlug System|
+:Update ProviderPaymentStatus;
+stop
+@enduml

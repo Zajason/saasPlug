@@ -1,0 +1,1574 @@
+openapi: 3.0.3
+info:
+  title: EV Charging Station API
+  description: |
+    API για τη διαχείριση σταθμών φόρτισης ηλεκτρικών οχημάτων (EV Charging Stations).
+    
+    ## Αυθεντικοποίηση
+    Η πλειοψηφία των endpoints απαιτεί αυθεντικοποίηση μέσω JWT token.
+    Το token λαμβάνεται από το endpoint `/api/v1/auth/signin` και πρέπει να 
+    συμπεριλαμβάνεται στο header `Authorization` ως `Bearer <token>`.
+    
+    ## Ρόλοι Χρηστών
+    - **USER**: Βασικός χρήστης - μπορεί να δει φορτιστές, να κάνει κρατήσεις, κ.λπ.
+    - **ADMIN**: Διαχειριστής - πλήρης πρόσβαση σε όλες τις λειτουργίες διαχείρισης
+  version: 1.0.0
+  contact:
+    name: softeng25-02 Team
+
+servers:
+  - url: http://localhost:8080
+    description: ApiGateway development server
+
+tags:
+  - name: Authentication
+    description: Εγγραφή και σύνδεση χρηστών
+  - name: Profile
+    description: Διαχείριση προφίλ χρήστη
+  - name: Vehicles
+    description: Διαχείριση οχημάτων χρήστη
+  - name: Payment Methods
+    description: Διαχείριση μεθόδων πληρωμής
+  - name: Chargers
+    description: Πληροφορίες φορτιστών
+  - name: Points
+    description: Σημεία φόρτισης (εναλλακτικό API)
+  - name: Reservations
+    description: Κρατήσεις φορτιστών
+  - name: Sessions
+    description: Συνεδρίες φόρτισης
+  - name: Cars
+    description: Κατάλογος αυτοκινήτων
+  - name: Car Ownership
+    description: Διαχείριση ιδιοκτησίας αυτοκινήτων
+  - name: Payments
+    description: Πληρωμές μέσω Stripe
+  - name: Admin
+    description: Λειτουργίες διαχείρισης (μόνο για admins)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token που λαμβάνεται από το signin endpoint
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Περιγραφή σφάλματος
+      example:
+        error: "Invalid credentials"
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [USER, ADMIN]
+        preferences:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Vehicle:
+      type: object
+      properties:
+        id:
+          type: integer
+        make:
+          type: string
+        model:
+          type: string
+        batteryKWh:
+          type: number
+        maxKW:
+          type: number
+        userId:
+          type: integer
+
+    PaymentMethod:
+      type: object
+      properties:
+        id:
+          type: integer
+        provider:
+          type: string
+        tokenLast4:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    Charger:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        address:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        connectorType:
+          type: string
+          enum: [CCS, CHADEMO, TYPE2, TYPE1, SCHUKO]
+        maxKW:
+          type: number
+        status:
+          type: string
+          enum: [AVAILABLE, IN_USE, OUTAGE]
+        pricingProfileId:
+          type: integer
+          nullable: true
+        distanceKm:
+          type: number
+          description: Απόσταση σε km (μόνο αν δοθεί geo filter)
+
+    Point:
+      type: object
+      properties:
+        pointid:
+          type: integer
+        providerName:
+          type: string
+        name:
+          type: string
+        address:
+          type: string
+        connectorType:
+          type: string
+        lon:
+          type: string
+        lat:
+          type: string
+        status:
+          type: string
+          enum: [available, in_use, charging, reserved, outage]
+        cap:
+          type: number
+          description: Μέγιστη ισχύς σε kW
+        kwhprice:
+          type: number
+        reserved_by_me:
+          type: boolean
+        reservationendtime:
+          type: string
+          nullable: true
+          description: Ώρα λήξης κράτησης (YYYY-MM-DD HH:MM)
+
+    Session:
+      type: object
+      properties:
+        starttime:
+          type: string
+          description: "Format: YYYY-MM-DD HH:MM"
+        endtime:
+          type: string
+        startsoc:
+          type: integer
+        endsoc:
+          type: integer
+        totalkwh:
+          type: number
+        kwhprice:
+          type: number
+        amount:
+          type: number
+
+    PointStatusChange:
+      type: object
+      properties:
+        timeref:
+          type: string
+          description: "Format: YYYY-MM-DD HH:MM"
+        old_state:
+          type: string
+        new_state:
+          type: string
+
+    Car:
+      type: object
+      properties:
+        id:
+          type: integer
+        brand:
+          type: string
+        model:
+          type: string
+        variant:
+          type: string
+          nullable: true
+        usableBatteryKWh:
+          type: number
+        acMaxKW:
+          type: number
+        dcMaxKW:
+          type: number
+        dcPorts:
+          type: array
+          items:
+            type: string
+        acPorts:
+          type: array
+          items:
+            type: string
+
+    CarOwnership:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        carId:
+          type: integer
+        color:
+          type: string
+          enum: [RED, BLUE, YELLOW, WHITE, BLACK, SILVER, GREY, GREEN, ORANGE, PURPLE]
+        createdAt:
+          type: string
+          format: date-time
+        car:
+          $ref: '#/components/schemas/Car'
+
+paths:
+  # ==================== AUTHENTICATION ====================
+  /api/v1/auth/signup:
+    post:
+      tags: [Authentication]
+      summary: Εγγραφή νέου χρήστη
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+            example:
+              email: "user@example.com"
+              password: "password123"
+      responses:
+        '201':
+          description: Χρήστης δημιουργήθηκε επιτυχώς
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  userId:
+                    type: integer
+              example:
+                message: "User created successfully"
+                userId: 1
+        '400':
+          description: Μη έγκυρα δεδομένα
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Ο χρήστης υπάρχει ήδη
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/signin:
+    post:
+      tags: [Authentication]
+      summary: Σύνδεση χρήστη
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+            example:
+              email: "user@example.com"
+              password: "password123"
+      responses:
+        '200':
+          description: Επιτυχής σύνδεση
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: JWT token για αυθεντικοποίηση
+              example:
+                token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        '401':
+          description: Λανθασμένα στοιχεία
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ==================== PROFILE ====================
+  /api/v1/me:
+    get:
+      tags: [Profile]
+      summary: Λήψη προφίλ χρήστη
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Πληροφορίες προφίλ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Μη εξουσιοδοτημένος
+        '404':
+          description: Χρήστης δεν βρέθηκε
+
+    patch:
+      tags: [Profile]
+      summary: Ενημέρωση προφίλ χρήστη
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                preferences:
+                  type: object
+      responses:
+        '200':
+          description: Προφίλ ενημερώθηκε
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Μη έγκυρα δεδομένα
+        '401':
+          description: Μη εξουσιοδοτημένος
+
+  /api/v1/me/change-password:
+    post:
+      tags: [Profile]
+      summary: Αλλαγή κωδικού πρόσβασης
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [oldPassword, newPassword]
+              properties:
+                oldPassword:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Κωδικός ενημερώθηκε
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '401':
+          description: Λανθασμένος παλιός κωδικός
+
+  # ==================== VEHICLES ====================
+  /api/v1/me/vehicles:
+    get:
+      tags: [Vehicles]
+      summary: Λίστα οχημάτων χρήστη
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Λίστα οχημάτων
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Vehicle'
+
+    post:
+      tags: [Vehicles]
+      summary: Προσθήκη νέου οχήματος
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [make, model, batteryKWh, maxKW]
+              properties:
+                make:
+                  type: string
+                model:
+                  type: string
+                batteryKWh:
+                  type: number
+                maxKW:
+                  type: number
+      responses:
+        '201':
+          description: Όχημα δημιουργήθηκε
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '400':
+          description: Μη έγκυρα δεδομένα
+
+  /api/v1/me/vehicles/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+
+    get:
+      tags: [Vehicles]
+      summary: Λήψη συγκεκριμένου οχήματος
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Πληροφορίες οχήματος
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '404':
+          description: Όχημα δεν βρέθηκε
+
+    patch:
+      tags: [Vehicles]
+      summary: Ενημέρωση οχήματος
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                make:
+                  type: string
+                model:
+                  type: string
+                batteryKWh:
+                  type: number
+                maxKW:
+                  type: number
+      responses:
+        '200':
+          description: Όχημα ενημερώθηκε
+        '404':
+          description: Όχημα δεν βρέθηκε
+
+    delete:
+      tags: [Vehicles]
+      summary: Διαγραφή οχήματος
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Όχημα διαγράφηκε
+        '404':
+          description: Όχημα δεν βρέθηκε
+
+  # ==================== PAYMENT METHODS ====================
+  /api/v1/me/payment-methods:
+    get:
+      tags: [Payment Methods]
+      summary: Λίστα μεθόδων πληρωμής
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Λίστα μεθόδων πληρωμής
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PaymentMethod'
+
+    post:
+      tags: [Payment Methods]
+      summary: Προσθήκη μεθόδου πληρωμής
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, tokenLast4]
+              properties:
+                provider:
+                  type: string
+                tokenLast4:
+                  type: string
+                  minLength: 4
+                  maxLength: 4
+      responses:
+        '201':
+          description: Μέθοδος πληρωμής προστέθηκε
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethod'
+
+  /api/v1/me/payment-methods/{id}:
+    delete:
+      tags: [Payment Methods]
+      summary: Διαγραφή μεθόδου πληρωμής
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Μέθοδος πληρωμής διαγράφηκε
+        '404':
+          description: Μέθοδος πληρωμής δεν βρέθηκε
+
+  # ==================== CHARGERS ====================
+  /api/v1/chargers:
+    get:
+      tags: [Chargers]
+      summary: Αναζήτηση φορτιστών με φίλτρα
+      description: |
+        Επιστρέφει λίστα φορτιστών με υποστήριξη για:
+        - Αναζήτηση κειμένου (όνομα/διεύθυνση)
+        - Φιλτράρισμα κατά status, τύπο connector, ισχύ
+        - Γεωγραφικό φίλτρο (lat, lng, radius)
+        - Ταξινόμηση και σελιδοποίηση
+      parameters:
+        - name: q
+          in: query
+          description: Αναζήτηση σε όνομα/διεύθυνση
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [AVAILABLE, IN_USE, OUTAGE]
+        - name: connectorType
+          in: query
+          description: Τύποι connector (comma-separated)
+          schema:
+            type: string
+          example: "CCS,TYPE2"
+        - name: minKW
+          in: query
+          schema:
+            type: number
+        - name: maxKW
+          in: query
+          schema:
+            type: number
+        - name: lat
+          in: query
+          description: Γεωγραφικό πλάτος (για αναζήτηση σε ακτίνα)
+          schema:
+            type: number
+        - name: lng
+          in: query
+          description: Γεωγραφικό μήκος
+          schema:
+            type: number
+        - name: radiusKm
+          in: query
+          description: Ακτίνα αναζήτησης σε km
+          schema:
+            type: number
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [distance, power, name]
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: Λίστα φορτιστών
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Charger'
+                  page:
+                    type: integer
+                  pageSize:
+                    type: integer
+                  total:
+                    type: integer
+
+  /api/v1/chargers/{id}:
+    get:
+      tags: [Chargers]
+      summary: Λήψη συγκεκριμένου φορτιστή
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Πληροφορίες φορτιστή
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Charger'
+        '204':
+          description: Φορτιστής δεν βρέθηκε
+        '400':
+          description: Μη έγκυρο ID
+
+  # ==================== POINTS (Alternative API) ====================
+  /api/v1/points:
+    get:
+      tags: [Points]
+      summary: Λήψη όλων των σημείων φόρτισης
+      description: |
+        Εναλλακτικό API για φορτιστές. Υποστηρίζει φιλτράρισμα κατά status.
+        Αν ο χρήστης είναι συνδεδεμένος, επιστρέφεται και η πληροφορία αν
+        ο φορτιστής είναι κρατημένος από αυτόν.
+      parameters:
+        - name: status
+          in: query
+          description: |
+            Φίλτρο status (available, in_use, charging, reserved, outage, outoforder)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Λίστα σημείων φόρτισης
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Point'
+
+  /api/v1/points/{id}:
+    get:
+      tags: [Points]
+      summary: Λήψη συγκεκριμένου σημείου φόρτισης
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Πληροφορίες σημείου φόρτισης
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Point'
+        '404':
+          description: Σημείο δεν βρέθηκε
+
+  # ==================== RESERVATIONS ====================
+  /api/v1/reserve/{id}:
+    post:
+      tags: [Reservations]
+      summary: Κράτηση φορτιστή (30 λεπτά default)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID φορτιστή
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Κράτηση επιτυχής
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pointid:
+                    type: string
+                  status:
+                    type: string
+                    example: "reserved"
+                  reservationendtime:
+                    type: string
+                    description: "Format: YYYY-MM-DD HH:MM"
+        '400':
+          description: Ο χρήστης έχει ήδη ενεργή κράτηση
+        '404':
+          description: Φορτιστής δεν βρέθηκε
+        '409':
+          description: Φορτιστής δεν είναι διαθέσιμος
+
+  /api/v1/reserve/{id}/{minutes}:
+    post:
+      tags: [Reservations]
+      summary: Κράτηση φορτιστή για συγκεκριμένο χρόνο
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: minutes
+          in: path
+          required: true
+          description: Διάρκεια κράτησης (max 60 λεπτά)
+          schema:
+            type: integer
+            maximum: 60
+      responses:
+        '200':
+          description: Κράτηση επιτυχής
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pointid:
+                    type: string
+                  status:
+                    type: string
+                  reservationendtime:
+                    type: string
+
+  /api/v1/reserve/{id}/cancel:
+    post:
+      tags: [Reservations]
+      summary: Ακύρωση κράτησης
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID φορτιστή
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Κράτηση ακυρώθηκε
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  chargerId:
+                    type: integer
+        '404':
+          description: Δεν βρέθηκε ενεργή κράτηση
+
+  # ==================== SESSIONS ====================
+  /api/v1/newsession:
+    post:
+      tags: [Sessions]
+      summary: Δημιουργία νέας συνεδρίας φόρτισης
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pointid, starttime, endtime, totalkwh, kwhprice, amount]
+              properties:
+                pointid:
+                  type: integer
+                starttime:
+                  type: string
+                  format: date-time
+                endtime:
+                  type: string
+                  format: date-time
+                startsoc:
+                  type: integer
+                endsoc:
+                  type: integer
+                totalkwh:
+                  type: number
+                kwhprice:
+                  type: number
+                amount:
+                  type: number
+      responses:
+        '200':
+          description: Συνεδρία δημιουργήθηκε
+        '400':
+          description: Λείπουν απαιτούμενα πεδία ή μη έγκυρος φορτιστής
+        '403':
+          description: Φορτιστής σε χρήση ή εκτός λειτουργίας
+
+  /api/v1/sessions/{id}/{from}/{to}:
+    get:
+      tags: [Sessions]
+      summary: Λήψη συνεδριών φορτιστή
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID φορτιστή
+          schema:
+            type: integer
+        - name: from
+          in: path
+          required: true
+          description: Ημερομηνία έναρξης (YYYYMMDD)
+          schema:
+            type: string
+          example: "20260101"
+        - name: to
+          in: path
+          required: true
+          description: Ημερομηνία λήξης (YYYYMMDD)
+          schema:
+            type: string
+          example: "20260131"
+      responses:
+        '200':
+          description: Λίστα συνεδριών
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Session'
+        '400':
+          description: Μη έγκυρο ID ή μορφή ημερομηνίας
+
+  # ==================== POINT STATUS ====================
+  /api/v1/pointstatus/{id}/{from}/{to}:
+    get:
+      tags: [Points]
+      summary: Ιστορικό κατάστασης σημείου φόρτισης
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: from
+          in: path
+          required: true
+          description: Ημερομηνία έναρξης (YYYYMMDD)
+          schema:
+            type: string
+        - name: to
+          in: path
+          required: true
+          description: Ημερομηνία λήξης (YYYYMMDD)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ιστορικό αλλαγών κατάστασης
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PointStatusChange'
+
+  # ==================== UPDATE POINT ====================
+  /api/v1/updpoint/{id}:
+    post:
+      tags: [Points]
+      summary: Ενημέρωση κατάστασης/τιμής σημείου φόρτισης
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  description: |
+                    Νέα κατάσταση (available, charging, in_use, reserved, outage, outoforder, malfunction)
+                kwhprice:
+                  type: number
+                  description: Νέα τιμή ανά kWh
+      responses:
+        '200':
+          description: Σημείο ενημερώθηκε
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pointid:
+                    type: string
+                  status:
+                    type: string
+                  kwhprice:
+                    type: number
+        '400':
+          description: Μη έγκυρο ID ή status
+
+  # ==================== CARS ====================
+  /api/v1/cars/search:
+    get:
+      tags: [Cars]
+      summary: Αναζήτηση αυτοκινήτων
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Αναζήτηση κατά μάρκα ή μοντέλο
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Λίστα αυτοκινήτων
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Car'
+        '400':
+          description: Δεν δόθηκε query parameter
+
+  # ==================== CAR OWNERSHIP ====================
+  /api/v1/car-ownership:
+    get:
+      tags: [Car Ownership]
+      summary: Λήψη ιδιοκτησιών αυτοκινήτων χρήστη
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Λίστα ιδιοκτησιών
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CarOwnership'
+
+  /api/v1/car-ownership/{carId}:
+    post:
+      tags: [Car Ownership]
+      summary: Προσθήκη ιδιοκτησίας αυτοκινήτου
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: carId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [color]
+              properties:
+                color:
+                  type: string
+                  enum: [RED, BLUE, YELLOW, WHITE, BLACK, SILVER, GREY, GREEN, ORANGE, PURPLE]
+      responses:
+        '201':
+          description: Ιδιοκτησία δημιουργήθηκε
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  ownership:
+                    $ref: '#/components/schemas/CarOwnership'
+        '404':
+          description: Αυτοκίνητο δεν βρέθηκε
+        '409':
+          description: Ο χρήστης έχει ήδη αυτό το αυτοκίνητο
+
+  # ==================== PAYMENTS (Stripe) ====================
+  /api/v1/payments/create-setup-intent:
+    post:
+      tags: [Payments]
+      summary: Δημιουργία Stripe SetupIntent
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: SetupIntent δημιουργήθηκε
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clientSecret:
+                    type: string
+
+  /api/v1/payments/save-method:
+    post:
+      tags: [Payments]
+      summary: Αποθήκευση μεθόδου πληρωμής Stripe
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paymentMethodId]
+              properties:
+                paymentMethodId:
+                  type: string
+      responses:
+        '201':
+          description: Μέθοδος αποθηκεύτηκε
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paymentMethod:
+                    $ref: '#/components/schemas/PaymentMethod'
+        '409':
+          description: Μέθοδος πληρωμής ήδη συνδεδεμένη
+
+  /api/v1/payments/charge:
+    post:
+      tags: [Payments]
+      summary: Χρέωση συνεδρίας φόρτισης
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId]
+              properties:
+                sessionId:
+                  type: integer
+                amountEur:
+                  type: number
+                  description: Ποσό σε EUR (προαιρετικό)
+      responses:
+        '200':
+          description: Χρέωση επιτυχής
+        '400':
+          description: Μη έγκυρα δεδομένα
+
+  /api/v1/payments/history:
+    get:
+      tags: [Payments]
+      summary: Ιστορικό πληρωμών χρήστη
+      description: Επιστρέφει όλες τις πληρωμές του χρήστη με πληροφορίες για τις συνεδρίες φόρτισης και τα τιμολόγια.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Λίστα πληρωμών
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  history:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        sessionId:
+                          type: integer
+                        status:
+                          type: string
+                        amountEur:
+                          type: number
+                        providerRef:
+                          type: string
+                          nullable: true
+                        createdAt:
+                          type: string
+                          format: date-time
+                        session:
+                          type: object
+                          nullable: true
+                          properties:
+                            startedAt:
+                              type: string
+                              format: date-time
+                            endedAt:
+                              type: string
+                              format: date-time
+                              nullable: true
+                            energyKWh:
+                              type: number
+                            costEur:
+                              type: number
+                              nullable: true
+                            chargerName:
+                              type: string
+                              nullable: true
+                            chargerAddress:
+                              type: string
+                              nullable: true
+                            invoice:
+                              type: object
+                              nullable: true
+                              properties:
+                                id:
+                                  type: integer
+                                pdfUrl:
+                                  type: string
+                                totalEur:
+                                  type: number
+                                createdAt:
+                                  type: string
+                                  format: date-time
+        '401':
+          description: Μη εξουσιοδοτημένος
+        '500':
+          description: Αποτυχία φόρτωσης ιστορικού
+
+  # ==================== ADMIN ====================
+  /api/v1/admin/healthcheck:
+    get:
+      tags: [Admin]
+      summary: Έλεγχος υγείας συστήματος
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Κατάσταση συστήματος
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "OK"
+                  dbconnection:
+                    type: string
+                  n_charge_points:
+                    type: integer
+                  n_charge_points_online:
+                    type: integer
+                  n_charge_points_offline:
+                    type: integer
+
+  /api/v1/admin/users:
+    get:
+      tags: [Admin]
+      summary: Λίστα χρηστών (με φίλτρα)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Αναζήτηση email
+          schema:
+            type: string
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [USER, ADMIN]
+        - name: createdFrom
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: createdTo
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: hasSessions
+          in: query
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, email]
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        '200':
+          description: Λίστα χρηστών
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        email:
+                          type: string
+                        role:
+                          type: string
+                        createdAt:
+                          type: string
+                        updatedAt:
+                          type: string
+                        hasSessions:
+                          type: boolean
+                  page:
+                    type: integer
+                  pageSize:
+                    type: integer
+                  total:
+                    type: integer
+
+  /api/v1/admin/users/{id}:
+    get:
+      tags: [Admin]
+      summary: Πληροφορίες χρήστη
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Πληροφορίες χρήστη με στατιστικά
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  stats:
+                    type: object
+                    properties:
+                      sessions:
+                        type: integer
+                      totalKWh:
+                        type: number
+        '404':
+          description: Χρήστης δεν βρέθηκε
+
+  /api/v1/admin/chargers:
+    post:
+      tags: [Admin]
+      summary: Δημιουργία νέου φορτιστή
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, providerName, lat, lng, connectorType, maxKW]
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                address:
+                  type: string
+                providerName:
+                  type: string
+                  minLength: 2
+                lat:
+                  type: number
+                lng:
+                  type: number
+                connectorType:
+                  type: string
+                  enum: [CCS, CHADEMO, TYPE2]
+                maxKW:
+                  type: number
+                status:
+                  type: string
+                  enum: [AVAILABLE, IN_USE, OUTAGE]
+      responses:
+        '201':
+          description: Φορτιστής δημιουργήθηκε
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Charger'
+        '400':
+          description: Μη έγκυρα δεδομένα
+
+  /api/v1/admin/chargers/{id}:
+    patch:
+      tags: [Admin]
+      summary: Ενημέρωση φορτιστή
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                address:
+                  type: string
+                providerName:
+                  type: string
+                lat:
+                  type: number
+                lng:
+                  type: number
+                connectorType:
+                  type: string
+                  enum: [CCS, CHADEMO, TYPE2]
+                maxKW:
+                  type: number
+                status:
+                  type: string
+                  enum: [AVAILABLE, IN_USE, OUTAGE]
+      responses:
+        '200':
+          description: Φορτιστής ενημερώθηκε
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Charger'
+
+    delete:
+      tags: [Admin]
+      summary: Διαγραφή φορτιστή
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Φορτιστής διαγράφηκε
+
+  /api/v1/admin/resetpoints:
+    post:
+      tags: [Admin]
+      summary: Επαναφορά φορτιστών στα demo δεδομένα
+      description: Διαγράφει όλους τους φορτιστές και τους επαναφέρει από το demo-chargers.json
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Επαναφορά επιτυχής
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "OK"
+                  message:
+                    type: string
+        '400':
+          description: Αποτυχία επαναφοράς
+
+  /api/v1/admin/addpoints:
+    post:
+      tags: [Admin]
+      summary: Προσθήκη φορτιστών από CSV
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV αρχείο με στήλες name, address, lat, lng, connectorType, maxKW, status
+      responses:
+        '200':
+          description: Φορτιστές προστέθηκαν
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  added:
+                    type: integer
+        '400':
+          description: Μη έγκυρο αρχείο ή δεδομένα
+
+  /api/v1/admin/pricing/update:
+    post:
+      tags: [Admin]
+      summary: Ενημέρωση τιμών όλων των φορτιστών
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Τιμές ενημερώθηκαν
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  message:
+                    type: string
+
+  # ==================== HEALTH ====================
+  /api/health:
+    get:
+      summary: Βασικός έλεγχος υγείας
+      responses:
+        '200':
+          description: API λειτουργεί
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true

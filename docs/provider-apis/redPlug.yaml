@@ -1,0 +1,263 @@
+openapi: 3.1.0
+info:
+  title: redPlug API
+  version: 1.0.0
+  description: Provider-specific API contract for redPlug.
+servers:
+- url: https://davinci.softlab.ntua.gr/saas26/redPlug/api
+paths:
+  /points:
+    get:
+      tags:
+      - redPlug
+      summary: List points
+      description: List all `redPlug` charging points.
+      operationId: list_points_redPlug_api_points_get
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RedPoint'
+                title: Response List Points Redplug Api Points Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /point/{pointid}:
+    get:
+      tags:
+      - redPlug
+      summary: Get point details
+      description: Get one `redPlug` charging point by `pointid`.
+      operationId: get_point_redPlug_api_point__pointid__get
+      parameters:
+      - name: pointid
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Pointid
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedPoint'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /reserve/{pointid}:
+    post:
+      tags:
+      - redPlug
+      summary: Reserve point
+      description: Reserve a `redPlug` point with default duration.
+      operationId: reserve_point_default_redPlug_api_reserve__pointid__post
+      parameters:
+      - name: pointid
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Pointid
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedReserveResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /reserve/{pointid}/{minutes}:
+    post:
+      tags:
+      - redPlug
+      summary: Reserve point with duration
+      description: Reserve a `redPlug` point for a requested duration in minutes.
+      operationId: reserve_point_with_minutes_redPlug_api_reserve__pointid___minutes__post
+      parameters:
+      - name: pointid
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Pointid
+      - name: minutes
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Minutes
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedReserveResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    RedPoint:
+      properties:
+        pointid:
+          type: integer
+          title: Pointid
+        providerName:
+          type: string
+          const: redPlug
+          title: Providername
+        status:
+          type: string
+          title: Status
+        reservationendtime:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reservationendtime
+        cap:
+          type: integer
+          title: Cap
+        connector:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Connector
+        locationName:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Locationname
+        address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Address
+        long:
+          type: number
+          title: Long
+        lat:
+          type: number
+          title: Lat
+      type: object
+      required:
+      - pointid
+      - providerName
+      - status
+      - cap
+      - long
+      - lat
+      title: RedPoint
+    RedReserveResponse:
+      properties:
+        pointid:
+          type: integer
+          title: Pointid
+        providerName:
+          type: string
+          const: redPlug
+          title: Providername
+        status:
+          type: string
+          title: Status
+        reservationendtime:
+          type: string
+          title: Reservationendtime
+        long:
+          type: number
+          title: Long
+        lat:
+          type: number
+          title: Lat
+      type: object
+      required:
+      - pointid
+      - providerName
+      - status
+      - reservationendtime
+      - long
+      - lat
+      title: RedReserveResponse

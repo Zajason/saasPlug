@@ -1,0 +1,222 @@
+@startuml Deployment
+title saasPlug - Deployment Diagram (aligned with docker-compose.yml)
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam linetype ortho
+skinparam defaultTextAlignment center
+
+legend right
+  == Canonical Notes ==
+  * Docker Compose deployment (single host)
+  * Internal container ports shown; host ports are
+    parameterised via .env (WEB_PORT, API_GATEWAY_PORT,
+    POSTGRES_PORT, REDIS_PORT, RABBITMQ_*_PORT, MONITOR_PORT)
+  * Hybrid communication:
+    - synchronous REST via ApiGateway
+    - asynchronous messaging via RabbitMQ
+  * Database-per-service: one PostgreSQL instance hosting
+    one logical DB per service (saasplug_<service>)
+  * Export files are stored as rows in the DB (no object store)
+endlegend
+
+node "Client Devices" <<device>> {
+  node "EVUser Browser" as EVUserBrowser
+  node "ProviderAdmin Browser" as ProviderAdminBrowser
+  node "PlatformOperator Browser" as PlatformOperatorBrowser
+}
+
+cloud "GoogleOAuthProvider" as GoogleOAuthProvider
+cloud "ExternalProviderAPI\nredPlug / greenPlug / bluePlug\ndavinci.softlab.ntua.gr" as ExternalProviderAPI
+cloud "PaymentGateway (Stripe)" as PaymentGateway
+
+node "Docker Host / VM" <<device>> {
+
+  node "Docker Network: saasplug_default" <<network>> {
+
+    node "web-container" <<container>> {
+      artifact "Web (Next.js)\nserves EVUser / Provider / Operator UIs\nPort: 3000  (host: WEB_PORT)" as Web
+    }
+
+    node "api-gateway-container" <<container>> {
+      artifact "ApiGateway\nPort: 8080  (host: API_GATEWAY_PORT)" as ApiGateway
+    }
+
+    node "auth-service-container" <<container>> {
+      artifact "AuthService\nPort: 8081" as AuthService
+    }
+    node "user-service-container" <<container>> {
+      artifact "UserService\nPort: 8082" as UserService
+    }
+    node "vehicle-service-container" <<container>> {
+      artifact "VehicleService\nPort: 8083" as VehicleService
+    }
+    node "charger-service-container" <<container>> {
+      artifact "ChargerService\nPort: 8084" as ChargerService
+    }
+    node "reservation-service-container" <<container>> {
+      artifact "ReservationService\nPort: 8085" as ReservationService
+    }
+    node "session-service-container" <<container>> {
+      artifact "SessionService\nPort: 8086" as SessionService
+    }
+    node "billing-service-container" <<container>> {
+      artifact "BillingService\nPort: 8087" as BillingService
+    }
+    node "provider-service-container" <<container>> {
+      artifact "ProviderService\nPort: 8088" as ProviderService
+    }
+    node "analytics-service-container" <<container>> {
+      artifact "AnalyticsService\nPort: 8089" as AnalyticsService
+    }
+    node "integration-service-container" <<container>> {
+      artifact "IntegrationService\nPort: 8090" as IntegrationService
+    }
+    node "audit-service-container" <<container>> {
+      artifact "AuditService\nPort: 8091" as AuditService
+    }
+
+    node "monitor-service-container" <<container>> {
+      artifact "MonitorService\nhealth dashboard\nPort: 9090  (host: MONITOR_PORT)" as MonitorService
+    }
+
+    node "rabbitmq-container" <<container>> {
+      artifact "RabbitMQ MessageBroker\nAMQP: 5672  (host: RABBITMQ_AMQP_PORT)\nMgmt: 15672 (host: RABBITMQ_MANAGEMENT_PORT)" as MessageBroker
+    }
+
+    node "redis-container" <<container>> {
+      artifact "Redis\nPort: 6379  (host: REDIS_PORT)" as Redis
+    }
+
+    node "db-init-container" <<container>> {
+      artifact "db-init (one-shot)\ncreates saasplug_<service> DBs\nthen exits" as DbInit
+    }
+
+    database "postgres-container" <<container>> {
+      artifact "PostgreSQL 15\nPort: 5432  (host: POSTGRES_PORT)" as Postgres
+      artifact "saasplug_auth" as AuthDB
+      artifact "saasplug_user" as UserDB
+      artifact "saasplug_vehicle" as VehicleDB
+      artifact "saasplug_charger" as ChargerDB
+      artifact "saasplug_reservation" as ReservationDB
+      artifact "saasplug_session" as SessionDB
+      artifact "saasplug_billing" as BillingDB
+      artifact "saasplug_provider" as ProviderDB
+      artifact "saasplug_analytics" as AnalyticsDB
+      artifact "saasplug_integration" as IntegrationDB
+      artifact "saasplug_audit" as AuditDB
+    }
+  }
+}
+
+' =========================
+' Client -> Web -> Gateway
+' =========================
+EVUserBrowser --> Web : HTTPS
+ProviderAdminBrowser --> Web : HTTPS
+PlatformOperatorBrowser --> Web : HTTPS
+Web --> ApiGateway : REST / JSON
+
+' =========================
+' API Gateway -> Services
+' =========================
+ApiGateway --> AuthService
+ApiGateway --> UserService
+ApiGateway --> VehicleService
+ApiGateway --> ChargerService
+ApiGateway --> ReservationService
+ApiGateway --> SessionService
+ApiGateway --> BillingService
+ApiGateway --> ProviderService
+ApiGateway --> AnalyticsService
+ApiGateway --> IntegrationService
+ApiGateway --> AuditService
+
+' =========================
+' External Integrations
+' =========================
+AuthService --> GoogleOAuthProvider : OAuth2 / verifyIdToken
+BillingService --> PaymentGateway : HTTPS
+IntegrationService --> ExternalProviderAPI : HTTPS
+
+' =========================
+' Databases (one logical DB per service)
+' =========================
+AuthService --> AuthDB
+UserService --> UserDB
+VehicleService --> VehicleDB
+ChargerService --> ChargerDB
+ReservationService --> ReservationDB
+SessionService --> SessionDB
+BillingService --> BillingDB
+ProviderService --> ProviderDB
+AnalyticsService --> AnalyticsDB
+IntegrationService --> IntegrationDB
+AuditService --> AuditDB
+DbInit --> Postgres : create databases
+
+' =========================
+' Redis Usage
+' =========================
+ChargerService --> Redis : charger availability cache
+ReservationService --> Redis : reservation lock / temporary hold
+SessionService --> Redis : active session ephemeral state
+ApiGateway --> Redis : optional token / rate-limit cache
+
+' =========================
+' Messaging
+' =========================
+ReservationService --> MessageBroker : publish ReservationCreated / Cancelled
+SessionService --> MessageBroker : publish SessionStarted / Stopped
+ProviderService --> MessageBroker : publish Provider events
+IntegrationService --> MessageBroker : publish ProviderSync / Webhook events
+
+BillingService --> MessageBroker : consume Session + Provider events
+AnalyticsService --> MessageBroker : consume domain events
+AuditService --> MessageBroker : consume all events
+
+' =========================
+' Internal Calls
+' =========================
+ReservationService --> ChargerService : availability check
+SessionService --> BillingService : invoice trigger
+ProviderService --> IntegrationService : API config
+AnalyticsService --> BillingService : usage data
+
+' =========================
+' Health Monitoring (pull-based)
+' =========================
+MonitorService --> ApiGateway : GET /api/health
+MonitorService --> AuthService : GET /api/health
+MonitorService --> UserService : GET /api/health
+MonitorService --> VehicleService : GET /api/health
+MonitorService --> ChargerService : GET /api/health
+MonitorService --> ReservationService : GET /api/health
+MonitorService --> SessionService : GET /api/health
+MonitorService --> BillingService : GET /api/health
+MonitorService --> ProviderService : GET /api/health
+MonitorService --> AnalyticsService : GET /api/health
+MonitorService --> IntegrationService : GET /api/health
+MonitorService --> AuditService : GET /api/health
+MonitorService --> Redis : TCP liveness probe
+MonitorService --> MessageBroker : management API probe
+
+note bottom of Postgres
+Single PostgreSQL 15 instance.
+One logical database per service
+(database-per-service pattern,
+created by db-init at startup).
+end note
+
+note bottom of MonitorService
+Polls /api/health of every service plus
+Redis and RabbitMQ; exposes an aggregated
+health dashboard. Pull-based, no agents.
+end note
+
+note bottom of MessageBroker
+RabbitMQ enables event-driven,
+loosely coupled communication.
+end note
+
+@enduml

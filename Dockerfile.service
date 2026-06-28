@@ -1,0 +1,36 @@
+FROM node:22-bookworm-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates postgresql-client \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json ./
+COPY apps/web/package.json apps/web/package.json
+COPY services/api-gateway/package.json services/api-gateway/package.json
+COPY services/auth-service/package.json services/auth-service/package.json
+COPY services/user-service/package.json services/user-service/package.json
+COPY services/vehicle-service/package.json services/vehicle-service/package.json
+COPY services/charger-service/package.json services/charger-service/package.json
+COPY services/reservation-service/package.json services/reservation-service/package.json
+COPY services/session-service/package.json services/session-service/package.json
+COPY services/billing-service/package.json services/billing-service/package.json
+COPY services/provider-service/package.json services/provider-service/package.json
+COPY services/integration-service/package.json services/integration-service/package.json
+COPY services/analytics-service/package.json services/analytics-service/package.json
+COPY services/audit-service/package.json services/audit-service/package.json
+COPY services/monitor-service/package.json services/monitor-service/package.json
+COPY tools/cli-client/package.json tools/cli-client/package.json
+
+RUN npm ci
+
+COPY services ./services
+COPY scripts ./scripts
+
+RUN DATABASE_URL="postgresql://user:pass@postgres:5432/saasplug_user?schema=user_service" \
+  npx prisma generate --schema services/prisma-client/schema.prisma
+
+ENV NODE_ENV=production
+
+CMD ["npm", "run", "dev:gateway"]

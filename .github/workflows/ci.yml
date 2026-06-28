@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    # Postgres is required by the billing-service integration tests
+    # (the other suites mock Prisma / fetch and need no database).
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U user -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://user:pass@localhost:5432/postgres
+      JWT_SECRET: test-secret
+      # Placeholder key forces the billing mock-payment flow (no real Stripe calls).
+      # NODE_ENV is left unset here: Vitest sets it to "test" for the test process,
+      # which is what billing-service relies on to skip listen()/RabbitMQ on import.
+      STRIPE_SECRET_KEY: sk_test_replace_me
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate --schema services/prisma-client/schema.prisma
+
+      - name: Apply database schema
+        run: npx prisma db push --schema services/prisma-client/schema.prisma --skip-generate --accept-data-loss
+
+      - name: Typecheck all services
+        run: npm run build:services
+
+      - name: Test integration-service
+        run: npm test --workspace services/integration-service
+
+      - name: Test provider-service
+        run: npm test --workspace services/provider-service
+
+      - name: Test billing-service
+        run: npm test --workspace services/billing-service

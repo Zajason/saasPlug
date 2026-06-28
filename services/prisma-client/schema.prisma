@@ -1,0 +1,543 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+enum Role {
+  EV_USER
+  PROVIDER_ADMIN
+  PLATFORM_OPERATOR
+}
+
+enum ChargerStatus {
+  AVAILABLE
+  IN_USE
+  OUTAGE
+}
+
+enum ConnectorType {
+  CCS
+  CHADEMO // (avoid special characters; all caps is simplest)
+  TYPE2
+  TYPE1
+  SCHUKO
+}
+
+enum ReservationStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum SessionStatus {
+  RUNNING
+  COMPLETED
+  AUTO_STOPPED
+  USER_STOPPED
+  INSUFFICIENT_FUNDS
+}
+
+enum PaymentStatus {
+  PREAUTHORIZED
+  CAPTURED
+  CANCELLED
+  FAILED
+}
+
+enum ProviderInvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum ProviderPaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum ExportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ExportFormat {
+  CSV
+  JSON
+}
+
+// ---------- Core ----------
+model User {
+  id                    Int      @id @default(autoincrement())
+  email                 String   @unique
+  password              String?
+  googleId              String?  @unique
+  authProvider          String   @default("LOCAL")
+  firstName             String?
+  lastName              String?
+  phone                 String?
+  role                  Role     @default(EV_USER)
+  stripeCustomerId      String?  @unique
+  preferences           Json?
+  outstandingBalanceEur Decimal  @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  carOwnerships  CarOwnership[]
+  paymentMethods PaymentMethod[]
+  reservations   Reservation[]
+  sessions       Session[]
+  invoices       Invoice[]
+  paymentAuths   PaymentAuth[]
+  providerAccounts ProviderAccount[]
+  exportJobs     ExportJob[]
+}
+
+enum CarColor {
+  RED
+  BLUE
+  YELLOW
+  WHITE
+  BLACK
+  SILVER
+  GREY
+  GREEN
+  ORANGE
+  PURPLE
+}
+
+// ---------- Cars ----------
+model Car {
+  id               Int             @id @default(autoincrement())
+  brand            String
+  model            String
+  variant          String?
+  usableBatteryKWh Float
+  acMaxKW          Float
+  dcMaxKW          Float
+  dcChargingCurve  Json // example: [{"percentage":0,"power":80.75}, ...]
+  dcCurveIsDefault Boolean         @default(true)
+  dcPorts          ConnectorType[] // example: ["CCS"]
+  acPorts          ConnectorType[] // example: ["TYPE2"]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  ownerships CarOwnership[]
+}
+
+model CarOwnership {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  car       Car      @relation(fields: [carId], references: [id], onDelete: Cascade)
+  carId     Int
+  color     CarColor
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([carId])
+}
+
+// ---------- Catalog ----------
+model Charger {
+  id               Int             @id @default(autoincrement())
+  providerName     String          @default("Unknown")
+  provider         Provider?       @relation(fields: [providerId], references: [id])
+  providerId       Int?
+  name             String
+  address          String?
+  lat              Decimal         @db.Decimal(9, 6)
+  lng              Decimal         @db.Decimal(9, 6)
+  connectorType    ConnectorType
+  maxKW            Float
+  status           ChargerStatus   @default(AVAILABLE)
+  pricingProfile   PricingProfile? @relation(fields: [pricingProfileId], references: [id])
+  pricingProfileId Int?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  kwhprice         Float           @default(0.25)
+
+  reservations Reservation[]
+  sessions     Session[]
+  providerChargers ProviderCharger[]
+
+  @@index([status])
+  @@index([lat, lng])
+  @@index([providerId])
+}
+
+model PricingProfile {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  // JSON with your rule config: base, ToD windows, power tiers, wholesale multiplier, etc.
+  rulesJson Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  chargers Charger[]
+}
+
+// Wholesale market points (hourly)
+model WholesalePricePoint {
+  id             Int      @id @default(autoincrement())
+  ts             DateTime @unique
+  priceEurPerKWh Decimal  @db.Decimal(8, 5)
+}
+
+// ---------- User flows ----------
+model Reservation {
+  id              Int               @id @default(autoincrement())
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          Int
+  charger         Charger           @relation(fields: [chargerId], references: [id], onDelete: Cascade)
+  chargerId       Int
+  startsAt        DateTime
+  expiresAt       DateTime
+  status          ReservationStatus @default(ACTIVE)
+  paymentIntentId String?
+  createdAt       DateTime          @default(now())
+
+  session Session?
+  // Ensure only one ACTIVE per charger overlapping in time handled in app/Redis;
+  // you can still add a partial unique index later if needed.
+
+  @@index([userId, status])
+}
+
+model Session {
+  id            Int  @id @default(autoincrement())
+  userId        Int
+  chargerId     Int
+  reservationId Int? @unique // <- add this
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  charger     Charger      @relation(fields: [chargerId], references: [id], onDelete: Cascade)
+  reservation Reservation? @relation(fields: [reservationId], references: [id])
+
+  startedAt   DateTime
+  endedAt     DateTime?
+  kWh         Float         @default(0)
+  maxKWh      Float? // battery capacity remaining — auto-stop when reached
+  avgKW       Float?
+  pricePerKWh Decimal?      @db.Decimal(8, 5)
+  costEur     Decimal?      @db.Decimal(10, 2)
+  status      SessionStatus @default(RUNNING)
+  createdAt   DateTime      @default(now())
+
+  paymentAuth PaymentAuth?
+  invoice     Invoice?
+  @@index([userId, status])
+  @@index([chargerId, status])
+}
+
+model PaymentMethod {
+  id                    Int      @id @default(autoincrement())
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                Int
+  provider              String // e.g. "stripe", "mock"
+  tokenLast4            String // masked details
+  stripePaymentMethodId String?  @unique
+  status                String // "valid" | "invalid" etc.
+  createdAt             DateTime @default(now())
+
+  @@index([userId])
+}
+
+model CustomerBilling {
+  userId                Int      @id
+  stripeCustomerId      String?  @unique
+  outstandingBalanceEur Decimal  @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model PaymentAuth {
+  id          Int           @id @default(autoincrement())
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      Int
+  session     Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId   Int           @unique
+  amountEur   Decimal       @db.Decimal(10, 2)
+  providerRef String?
+  status      PaymentStatus
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model Invoice {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId Int      @unique
+  pdfUrl    String
+  totalEur  Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+}
+
+model ProviderInvoice {
+  id            Int                   @id @default(autoincrement())
+  providerId    Int
+  invoiceNumber String                @unique
+  periodStart   DateTime
+  periodEnd     DateTime
+  status        ProviderInvoiceStatus @default(OPEN)
+  subtotalEur   Decimal               @db.Decimal(10, 2)
+  taxEur        Decimal               @default(0) @db.Decimal(10, 2)
+  totalEur      Decimal               @db.Decimal(10, 2)
+  dueDate       DateTime
+  paidAt        DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  usageRecords ProviderUsageRecord[]
+  payments     ProviderPayment[]
+
+  @@index([providerId, status])
+  @@index([periodStart, periodEnd])
+}
+
+model ProviderUsageRecord {
+  id         Int              @id @default(autoincrement())
+  providerId Int
+  invoice    ProviderInvoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  invoiceId  Int?
+  sourceType String
+  sourceId   Int?
+  quantity   Int              @default(1)
+  amountEur  Decimal          @db.Decimal(10, 2)
+  occurredAt DateTime
+  metadata   Json?
+  createdAt  DateTime         @default(now())
+
+  @@index([providerId, occurredAt])
+  @@index([invoiceId])
+}
+
+model ProviderPayment {
+  id          Int                   @id @default(autoincrement())
+  providerId  Int
+  invoice     ProviderInvoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId   Int
+  amountEur   Decimal               @db.Decimal(10, 2)
+  providerRef String?
+  status      ProviderPaymentStatus @default(PENDING)
+  paidAt      DateTime?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@index([providerId, status])
+  @@index([invoiceId])
+}
+
+// ---------- Integrations / audit ----------
+model WebhookSubscription {
+  id         Int            @id @default(autoincrement())
+  provider   Provider       @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  providerId Int
+  url        String
+  secret     String
+  eventTypes String[] // e.g. ["CHARGER_STATUS_CHANGED","SESSION_STARTED"]
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  events     WebhookEvent[]
+
+  @@index([providerId])
+}
+
+model WebhookEvent {
+  id             Int                 @id @default(autoincrement())
+  subscription   WebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  subscriptionId Int
+  type           String
+  payloadJson    Json
+  deliveryStatus String // PENDING|SENT|FAILED
+  retries        Int                 @default(0)
+  createdAt      DateTime            @default(now())
+}
+
+model AuditEvent {
+  id            Int      @id @default(autoincrement())
+  eventId       String   @unique
+  routingKey    String
+  eventType     String
+  sourceService String
+  actorUserId   Int?
+  providerId    Int?
+  entityType    String?
+  entityId      Int?
+  payloadJson   Json
+  metadata      Json?
+  occurredAt    DateTime
+  receivedAt    DateTime @default(now())
+
+  @@index([routingKey])
+  @@index([eventType])
+  @@index([actorUserId])
+  @@index([providerId])
+  @@index([entityType, entityId])
+  @@index([occurredAt])
+}
+
+// ---------- Provider (SaaS customer) ----------
+enum ProviderStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+model Provider {
+  id           Int            @id @default(autoincrement())
+  name         String
+  legalName    String?
+  contactEmail String         @unique
+  contactPhone String?
+  country      String?
+  status       ProviderStatus @default(PENDING)
+  stripeCustomerId String?        @unique
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  accounts      ProviderAccount[]
+  subscriptions ProviderSubscription[]
+  chargers      Charger[]
+
+  apiConfigs           ProviderApiConfig[]
+  providerChargers     ProviderCharger[]
+  webhookSubscriptions WebhookSubscription[]
+  exportJobs           ExportJob[]
+}
+
+model ProviderAccount {
+  id         Int      @id @default(autoincrement())
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  providerId Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     Int      @unique
+  role       String   @default("OWNER") // OWNER | MEMBER
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([providerId, userId])
+  @@index([providerId])
+}
+
+model ProviderPlan {
+  id               Int      @id @default(autoincrement())
+  code             String   @unique // e.g. "BASIC", "PRO"
+  name             String
+  monthlyFeeEur    Decimal  @default(0) @db.Decimal(10, 2)
+  perSessionFeeEur Decimal  @default(0) @db.Decimal(10, 4)
+  features         Json?
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  subscriptions ProviderSubscription[]
+}
+
+model ProviderSubscription {
+  id         Int                @id @default(autoincrement())
+  provider   Provider           @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  providerId Int
+  plan       ProviderPlan       @relation(fields: [planId], references: [id])
+  planId     Int
+  status     SubscriptionStatus @default(ACTIVE)
+  stripeSubscriptionId String?             @unique
+  stripePriceId        String?
+  currentPeriodStart  DateTime?
+  currentPeriodEnd    DateTime?
+  startedAt  DateTime           @default(now())
+  endedAt    DateTime?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  @@index([providerId, status])
+}
+
+model ProviderApiConfig {
+  id               Int       @id @default(autoincrement())
+  provider         Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  providerId       Int
+  externalProvider String // "redPlug" | "greenPlug" | "bluePlug"
+  baseUrl          String
+  apiKey           String
+  enabled          Boolean   @default(true)
+  lastSyncedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([providerId, externalProvider])
+  @@index([providerId])
+}
+
+model ProviderCharger {
+  id               Int      @id @default(autoincrement())
+  provider         Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  providerId       Int
+  externalProvider String
+  externalId       String
+  charger          Charger? @relation(fields: [chargerId], references: [id], onDelete: SetNull)
+  chargerId        Int?
+  lastSyncedAt     DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([providerId, externalProvider, externalId])
+  @@index([providerId])
+  @@index([chargerId])
+}
+
+model ExportJob {
+  id          Int          @id @default(autoincrement())
+  provider   Provider?    @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  providerId Int?
+  requestedBy User?       @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+  requestedById Int?
+  scope       String      @default("PROVIDER") // PROVIDER | GLOBAL
+  format      ExportFormat @default(CSV)
+  status      ExportStatus @default(PENDING)
+  fileName    String?
+  downloadUrl String?
+  parameters  Json
+  resultJson  Json?
+  errorMessage String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  completedAt DateTime?
+
+  @@index([providerId, status])
+  @@index([requestedById])
+  @@index([createdAt])
+}
+
+model AggregatedMetric {
+  id         Int      @id @default(autoincrement())
+  providerId Int?
+  chargerId  Int?
+  metricName String
+  value      Decimal  @db.Decimal(10, 2)
+  timeBucket DateTime
+  period     String
+  createdAt  DateTime @default(now())
+
+  @@index([providerId, metricName, timeBucket])
+  @@index([chargerId, metricName])
+}

@@ -1,0 +1,127 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProviderStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum ChargerStatus {
+  AVAILABLE
+  IN_USE
+  OUTAGE
+}
+
+enum ConnectorType {
+  CCS
+  CHADEMO
+  TYPE2
+  TYPE1
+  SCHUKO
+}
+
+model Provider {
+  id               Int            @id @default(autoincrement())
+  name             String
+  legalName        String?
+  contactEmail     String         @unique
+  contactPhone     String?
+  country          String?
+  status           ProviderStatus @default(PENDING)
+  stripeCustomerId String?        @unique
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model ProviderAccount {
+  id         Int      @id @default(autoincrement())
+  providerId Int
+  userId     Int      @unique
+  role       String   @default("OWNER")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([providerId, userId])
+  @@index([providerId])
+}
+
+model Charger {
+  id               Int           @id @default(autoincrement())
+  providerName     String        @default("Unknown")
+  providerId       Int?
+  name             String
+  address          String?
+  lat              Decimal       @db.Decimal(9, 6)
+  lng              Decimal       @db.Decimal(9, 6)
+  connectorType    ConnectorType
+  maxKW            Float
+  status           ChargerStatus @default(AVAILABLE)
+  pricingProfileId Int?
+  kwhprice         Float         @default(0.25)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([status])
+  @@index([lat, lng])
+  @@index([providerId])
+}
+
+model ProviderApiConfig {
+  id               Int       @id @default(autoincrement())
+  providerId       Int       // Reference ID -> Provider Service
+  externalProvider String    // "redPlug" | "greenPlug" | "bluePlug"
+  baseUrl          String
+  apiKey           String
+  enabled          Boolean   @default(true)
+  lastSyncedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([providerId, externalProvider])
+  @@index([providerId])
+}
+
+model ProviderCharger {
+  id               Int      @id @default(autoincrement())
+  providerId       Int      // Reference ID -> Provider Service
+  externalProvider String
+  externalId       String
+  chargerId        Int      // Reference ID -> Charger Service
+  lastSyncedAt     DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Ensures we don't map the same external charger twice for the same provider
+  @@unique([providerId, externalProvider, externalId])
+  @@index([providerId])
+  @@index([chargerId])
+}
+
+model WebhookSubscription {
+  id         Int      @id @default(autoincrement())
+  providerId Int      // Reference ID -> Provider Service
+  url        String
+  secret     String
+  eventTypes String[] // e.g., ["CHARGER_STATUS_CHANGED", "SESSION_STARTED"]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([providerId])
+}
+
+model WebhookEvent {
+  id             Int      @id @default(autoincrement())
+  subscriptionId Int      // Strict relation to WebhookSubscription (kept internal)
+  type           String
+  payloadJson    Json
+  deliveryStatus String   // PENDING | SENT | FAILED
+  retries        Int      @default(0)
+  createdAt      DateTime @default(now())
+}

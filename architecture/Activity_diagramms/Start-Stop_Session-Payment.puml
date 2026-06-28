@@ -1,0 +1,30 @@
+@startuml
+skinparam style strictuml
+|EVUser|
+|saasPlug System|
+|External ProviderAPI|
+|PaymentGateway|
+
+|EVUser|
+start
+:StartSession;
+|saasPlug System|
+:Command: Start Charging;
+|External ProviderAPI|
+:start charging API;
+|saasPlug System|
+:Update SessionStatus (Active);
+|EVUser|
+:StopSession;
+|saasPlug System|
+:Command: Stop Charging;
+|External ProviderAPI|
+:stop charging API;
+:Calculate Final Cost;
+:Generate Invoice;
+|PaymentGateway|
+:Process Payment;
+|saasPlug System|
+:Update PaymentStatus;
+stop
+@enduml

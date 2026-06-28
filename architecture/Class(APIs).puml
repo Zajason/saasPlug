@@ -1,0 +1,272 @@
+@startuml ClassAPIs
+skinparam classAttributeIconSize 0
+skinparam monochrome true
+skinparam linetype ortho
+
+package "AuthService" {
+    package "API Request/Response Models" {
+        class GoogleLoginRequest {
+            + token: String
+        }
+        class AuthTokenResponse{
+            + jwt: String
+            + role: Role
+        }
+    }
+
+    package "REST API Controllers (Endpoints)" {
+        class AuthController <<RestController>> {
+            + <<POST>> /api/v1/auth/signup(req: Json): AuthTokenResponse
+            + <<POST>> /api/v1/auth/signin(req: Json): AuthTokenResponse
+            + <<POST>> /api/v1/auth/google(req: GoogleLoginRequest): AuthTokenResponse
+        }
+    }
+
+    AuthController ..up.> GoogleLoginRequest
+    AuthController ..up.> AuthTokenResponse
+}
+
+package "UserService" {
+    package "REST API Controllers (Endpoints)" {
+        class UserController <<RestController>> {
+            + <<GET>> /api/v1/me(): UserDto
+            + <<PATCH>> /api/v1/me(req: Json): UserDto
+        }
+    }
+
+    UserController ..up.> UserDto
+}
+
+package "VehicleService" {
+    package "REST API Controllers (Endpoints)" {
+        class VehicleController <<RestController>> {
+            + <<GET>> /api/v1/cars/search(): CarDto[]
+            + <<GET>> /api/v1/car-ownership(): CarOwnershipDto[]
+            + <<POST>> /api/v1/car-ownership/{carId}(req: CarDto): CarOwnershipDto
+            + <<DELETE>> /api/v1/car-ownership/{ownershipId}(): void
+        }
+    }
+
+    VehicleController ..up.> CarDto
+    VehicleController ..up.> CarOwnershipDto
+}
+
+package "ChargerService" {
+    package "API Request/Response Models" {
+        class SearchChargersRequest <<QueryParams>> {
+            + lat: Float
+            + lon: Float
+            + radiusKm: Float
+        }
+        class SearchChargersResponse {
+            + chargers: ChargerSummaryDto[]
+        }
+        class GetChargerDetailsResponse {
+            + charger: ChargerDetailsDto
+        }
+    }
+
+    package "REST API Controllers (Endpoints)" {
+        class ChargerController <<RestController>> {
+            + <<GET>> /api/v1/chargers(params: SearchChargersRequest): SearchChargersResponse
+            + <<GET>> /api/v1/chargers/{id}(id: String): GetChargerDetailsResponse
+        }
+    }
+
+    ChargerController ..up.> SearchChargersRequest
+    ChargerController ..up.> SearchChargersResponse
+    ChargerController ..up.> GetChargerDetailsResponse
+}
+
+package "ReservationService" {
+    package "API Request/Response Models" {
+        class CreateReservationRequest {
+            + chargerId: Integer
+            + startsAt: String
+            + endsAt: String
+        }
+        class CreateReservationResponse {
+            + reservation: ReservationDto
+        }
+        class CancelReservationRequest {
+            + reason: String
+        }
+        class ReservationResponse {
+            + reservation: ReservationDto
+        }
+    }
+
+    package "REST API Controllers (Endpoints)" {
+        class ReservationController <<RestController>> {
+            + <<POST>> /api/v1/reserve/{chargerId}/{minutes}(): CreateReservationResponse
+            + <<POST>> /api/v1/reserve/{id}/cancel(req: CancelReservationRequest): ReservationResponse
+            + <<GET>> /api/v1/reserve/active(): ReservationResponse
+        }
+    }
+
+    ReservationController ..up.> CreateReservationRequest
+    ReservationController ..up.> CreateReservationResponse
+    ReservationController ..up.> CancelReservationRequest
+    ReservationController ..up.> ReservationResponse
+}
+
+package "SessionService" {
+    package "API Request/Response Models" {
+        class StartSessionRequest {
+            + chargerId: Integer
+            + reservationId: Integer
+        }
+        class StartSessionResponse {
+            + session: SessionDto
+        }
+        class StopSessionRequest {
+            + sessionId: Integer
+        }
+        class StopSessionResponse {
+            + session: SessionDto
+            + invoice: InvoiceDto
+        }
+    }
+
+    package "REST API Controllers (Endpoints)" {
+        class SessionController <<RestController>> {
+            + <<POST>> /api/v1/sessions/start(req: StartSessionRequest): StartSessionResponse
+            + <<POST>> /api/v1/sessions/stop(req: StopSessionRequest): StopSessionResponse
+            + <<GET>> /api/v1/sessions/my-history(): SessionDto[]
+        }
+    }
+
+    SessionController ..up.> StartSessionRequest
+    SessionController ..up.> StartSessionResponse
+    SessionController ..up.> StopSessionRequest
+    SessionController ..up.> StopSessionResponse
+}
+
+package "BillingService" {
+    package "API Request/Response Models" {
+        class AddPaymentMethodRequest {
+            + paymentToken: String
+        }
+        class PaymentMethodResponse {
+            + method: PaymentMethodDto
+        }
+        class PaymentAuthorizationResponse {
+            + status: PaymentStatus
+            + amountAuthorizedEur: Float
+        }
+        class PayProviderInvoiceRequest {
+            + paymentMethodId: Integer
+        }
+        class PayProviderInvoiceResponse {
+            + success: Boolean
+        }
+        class GetProviderInvoiceResponse {
+            + invoice: ProviderInvoiceDto
+        }
+        class InvoiceResponse {
+            + invoice: InvoiceDto
+        }
+    }
+
+    package "REST API Controllers (Endpoints)" {
+        class BillingController <<RestController>> {
+            + <<POST>> /api/v1/payments/save-method(req: AddPaymentMethodRequest): PaymentMethodResponse
+            + <<GET>> /api/v1/payments/methods(): PaymentMethodResponse
+            + <<GET>> /api/v1/payments/provider/invoices(): GetProviderInvoiceResponse
+            + <<GET>> /api/v1/payments/provider/invoices/{id}(id: Integer): GetProviderInvoiceResponse
+            + <<POST>> /api/v1/payments/provider/invoices/{id}/pay(req: PayProviderInvoiceRequest): PayProviderInvoiceResponse
+        }
+    }
+
+    BillingController ..up.> AddPaymentMethodRequest
+    BillingController ..up.> PaymentMethodResponse
+    BillingController ..up.> PayProviderInvoiceRequest
+    BillingController ..up.> PayProviderInvoiceResponse
+    BillingController ..up.> GetProviderInvoiceResponse
+}
+
+package "ProviderService" {
+    package "API Request/Response Models" {
+        class RegisterProviderRequest {
+            + name: String
+            + adminEmail: String
+        }
+        class RegisterProviderResponse {
+            + provider: ProviderDto
+        }
+        class ProviderProfileResponse {
+            + provider: ProviderDto
+        }
+    }
+
+    package "REST API Controllers (Endpoints)" {
+        class ProviderController <<RestController>> {
+            + <<POST>> /api/v1/providers/register(req: RegisterProviderRequest): RegisterProviderResponse
+            + <<GET>> /api/v1/providers/me(): ProviderProfileResponse
+            + <<PATCH>> /api/v1/providers/me(): ProviderProfileResponse
+        }
+    }
+
+    ProviderController ..up.> RegisterProviderRequest
+    ProviderController ..up.> RegisterProviderResponse
+    ProviderController ..up.> ProviderProfileResponse
+}
+
+package "AnalyticsService" {
+    package "API Request/Response Models" {
+        class GetProviderAnalyticsRequest <<QueryParams>> {
+            + startDate: String
+            + endDate: String
+        }
+        class ProviderAnalyticsResponse {
+            + report: ProviderAnalyticsReportDto
+        }
+        class GetGlobalAnalyticsRequest <<QueryParams>> {
+            + startDate: String
+            + endDate: String
+        }
+        class GlobalAnalyticsResponse {
+            + report: GlobalAnalyticsReportDto
+        }
+        class ExportUsageDataRequest {
+            + startDate: String
+            + endDate: String
+            + format: ExportFormat
+        }
+        class ExportUsageDataResponse {
+            + job: ExportJobDto
+        }
+    }
+
+    package "REST API Controllers (Endpoints)" {
+        class AnalyticsController <<RestController>> {
+            + <<GET>> /api/v1/analytics/provider(params: GetProviderAnalyticsRequest): ProviderAnalyticsResponse
+            + <<GET>> /api/v1/analytics/global(params: GetGlobalAnalyticsRequest): GlobalAnalyticsResponse
+            + <<POST>> /api/v1/analytics/exports(req: ExportUsageDataRequest): ExportUsageDataResponse
+            + <<GET>> /api/v1/analytics/exports/{id}/download(): File
+        }
+    }
+
+    AnalyticsController ..up.> GetProviderAnalyticsRequest
+    AnalyticsController ..up.> ProviderAnalyticsResponse
+    AnalyticsController ..up.> GetGlobalAnalyticsRequest
+    AnalyticsController ..up.> GlobalAnalyticsResponse
+    AnalyticsController ..up.> ExportUsageDataRequest
+    AnalyticsController ..up.> ExportUsageDataResponse
+}
+
+package "IntegrationService" {
+    package "REST API Controllers (Endpoints)" {
+        class IntegrationController <<RestController>> {
+            + <<POST>> /api/v1/integration/config(req: Json): Json
+            + <<GET>> /api/v1/integration/chargers(): Json
+            + <<POST>> /api/v1/integration/sync(): Json
+            + <<POST>> /api/v1/integration/webhooks(req: WebhookEventDto): String
+            + <<POST>> /api/v1/integration/provider-chargers/{chargerId}/reserve(): Json
+        }
+    }
+
+    IntegrationController ..up.> WebhookEventDto
+}
+
+@enduml

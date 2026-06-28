@@ -1,0 +1,4 @@
+name,address,lat,lng,connectorType,maxKW,status
+Station Zografou,Iroon Polytechniou 9,37.975,23.774,TYPE2,22,AVAILABLE
+Station Syntagma,Syntagma Square,37.975,23.735,CCS,50,IN_USE
+Station Omonoia,Omonoia Square,37.984,23.728,TYPE2,11,OUTAGE

@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ReservationStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+model Reservation {
+  id              Int               @id @default(autoincrement())
+  userId          Int               // Reference ID -> User Service
+  chargerId       Int               // Reference ID -> Charger Service
+  startsAt        DateTime
+  expiresAt       DateTime
+  status          ReservationStatus @default(ACTIVE)
+  paymentIntentId String?           // Reference ID -> Billing/Stripe
+  createdAt       DateTime          @default(now())
+
+  // Ensure only one ACTIVE per charger overlapping in time handled in app/Redis;
+  // you can still add a partial unique index later if needed.
+
+  @@index([userId, status])
+  @@index([chargerId, status]) // Added this index as you will query by charger frequently
+}

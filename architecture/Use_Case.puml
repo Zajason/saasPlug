@@ -1,0 +1,45 @@
+@startuml
+left to right direction
+actor "EVUser" as User
+actor "ProviderAdmin" as Admin
+actor "PlatformOperator" as Operator
+actor "Google OAuth Provider" as Google
+actor "External ProviderAPI" as ExtAPI
+actor "PaymentGateway" as Payment
+usecase "LoginWithGoogle" as UC_Login
+usecase "SearchChargers\n--\nextension points\nCreateReservation\nViewChargerDetails" as UC_Search
+usecase "CreateReservation" as UC_Reserve
+usecase "ViewChargerDetails" as UC_Details
+usecase "CancelReservation" as UC_Cancel
+usecase "StartSession" as UC_Start
+usecase "StopSession" as UC_Stop
+usecase "RegisterProvider" as UC_RegProv
+usecase "ConfigureProviderAPI" as UC_Config
+usecase "ViewProviderAnalytics\n--\nextension points\nViewProviderInvoice\nExportUsageData" as UC_ProvAn
+usecase "ViewProviderInvoice\n--\nextension points\nPayProviderInvoice" as UC_ViewInv
+usecase "ExportUsageData" as UC_Export
+usecase "PayProviderInvoice" as UC_PayInv
+usecase "ViewGlobalAnalytics" as UC_GlobAn
+User ---> UC_Login
+UC_Login ---> Google
+User ---> UC_Search
+'<.. left to right
+UC_Search <.. UC_Reserve : <<extend>>
+UC_Search <.. UC_Details : <<extend>>
+User ---> UC_Cancel
+User ---> UC_Start
+User ---> UC_Stop
+UC_Stop ---> Payment
+Admin ---> UC_RegProv
+Admin ---> UC_Config
+UC_Config ---> ExtAPI
+Admin ---> UC_ProvAn
+'<.. για οριζόντια επεκτάση
+UC_ProvAn <.. UC_ViewInv : <<extend>>
+UC_ProvAn <.. UC_Export : <<extend>>
+UC_ViewInv <.. UC_PayInv : <<extend>>
+UC_PayInv ---> Payment
+
+Operator ---> UC_GlobAn
+
+@enduml

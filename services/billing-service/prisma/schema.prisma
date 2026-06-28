@@ -1,0 +1,187 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PaymentStatus {
+  PREAUTHORIZED
+  CAPTURED
+  CANCELLED
+  FAILED
+}
+
+enum ProviderInvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum ProviderPaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+enum ProviderStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+// Replaces the financial fields that used to live in the User model
+model CustomerBilling {
+  userId                Int      @id // Universal ID referencing the User Service
+  stripeCustomerId      String?  @unique
+  outstandingBalanceEur Decimal  @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model PaymentMethod {
+  id                    Int      @id @default(autoincrement())
+  userId                Int      // Reference ID
+  provider              String   
+  tokenLast4            String   
+  stripePaymentMethodId String?  @unique
+  status                String   
+  createdAt             DateTime @default(now())
+
+  @@index([userId])
+}
+
+model PaymentAuth {
+  id          Int           @id @default(autoincrement())
+  userId      Int           // Reference ID
+  sessionId   Int           @unique // Reference ID
+  amountEur   Decimal       @db.Decimal(10, 2)
+  providerRef String?
+  status      PaymentStatus
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model Invoice {
+  id        Int      @id @default(autoincrement())
+  userId    Int      // Reference ID
+  sessionId Int      @unique // Reference ID
+  pdfUrl    String
+  totalEur  Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+}
+
+model Provider {
+  id               Int            @id @default(autoincrement())
+  name             String
+  legalName        String?
+  contactEmail     String         @unique
+  contactPhone     String?
+  country          String?
+  status           ProviderStatus @default(PENDING)
+  stripeCustomerId String?        @unique
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model ProviderAccount {
+  id         Int      @id @default(autoincrement())
+  providerId Int
+  userId     Int      @unique // Reference ID
+  role       String   @default("OWNER")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([providerId, userId])
+  @@index([providerId])
+}
+
+model ProviderPlan {
+  id               Int      @id @default(autoincrement())
+  code             String   @unique
+  name             String
+  monthlyFeeEur    Decimal  @default(0) @db.Decimal(10, 2)
+  perSessionFeeEur Decimal  @default(0) @db.Decimal(10, 4)
+  features         Json?
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model ProviderSubscription {
+  id                   Int                @id @default(autoincrement())
+  providerId           Int
+  planId               Int
+  status               SubscriptionStatus @default(ACTIVE)
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  startedAt            DateTime           @default(now())
+  endedAt              DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@index([providerId, status])
+}
+
+model ProviderInvoice {
+  id            Int                   @id @default(autoincrement())
+  providerId    Int
+  invoiceNumber String                @unique
+  periodStart   DateTime
+  periodEnd     DateTime
+  status        ProviderInvoiceStatus @default(OPEN)
+  subtotalEur   Decimal               @db.Decimal(10, 2)
+  taxEur        Decimal               @default(0) @db.Decimal(10, 2)
+  totalEur      Decimal               @db.Decimal(10, 2)
+  dueDate       DateTime
+  paidAt        DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@index([providerId, status])
+  @@index([periodStart, periodEnd])
+}
+
+model ProviderUsageRecord {
+  id         Int      @id @default(autoincrement())
+  providerId Int
+  invoiceId  Int?
+  sourceType String
+  sourceId   Int?
+  quantity   Int      @default(1)
+  amountEur  Decimal  @db.Decimal(10, 2)
+  occurredAt DateTime
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([providerId, occurredAt])
+  @@index([invoiceId])
+}
+
+model ProviderPayment {
+  id          Int                   @id @default(autoincrement())
+  providerId  Int
+  invoiceId   Int
+  amountEur   Decimal               @db.Decimal(10, 2)
+  providerRef String?
+  status      ProviderPaymentStatus @default(PENDING)
+  paidAt      DateTime?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@index([providerId, status])
+  @@index([invoiceId])
+}

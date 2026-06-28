@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ChargerStatus {
+  AVAILABLE
+  IN_USE
+  OUTAGE
+}
+
+enum ConnectorType {
+  CCS
+  CHADEMO 
+  TYPE2
+  TYPE1
+  SCHUKO
+}
+
+model Charger {
+  id               Int           @id @default(autoincrement())
+  providerName     String        @default("Unknown")
+  providerId       Int?          // Reference ID -> Provider Service
+  name             String
+  address          String?
+  lat              Decimal       @db.Decimal(9, 6)
+  lng              Decimal       @db.Decimal(9, 6)
+  connectorType    ConnectorType
+  maxKW            Float
+  status           ChargerStatus @default(AVAILABLE)
+  pricingProfileId Int?          // Local reference to PricingProfile below
+  kwhprice         Float         @default(0.25)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([status])
+  @@index([lat, lng])
+  @@index([providerId])
+}
+
+model PricingProfile {
+  id         Int      @id @default(autoincrement())
+  name       String   @unique
+  // JSON with your rule config: base, ToD windows, power tiers, wholesale multiplier, etc.
+  rulesJson  Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}

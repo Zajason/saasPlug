@@ -1,0 +1,546 @@
+' =====================================================================
+'  saasPlug - Sequence Diagrams
+'  Naming follows: architecture/τλ2_consistency_v1.pdf
+'  Consistent with: Use_Case.puml, Component.puml, Class(APIs).puml,
+'                   Class(DataStruct).puml
+' =====================================================================
+
+' ---------------------------------------------------------------------
+' 1. LoginWithGoogle  (EVUser, ProviderAdmin)
+' ---------------------------------------------------------------------
+@startuml LoginWithGoogle
+title LoginWithGoogle - EVUser authenticates via Google OAuth
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+autonumber
+
+actor EVUser
+participant Frontend
+participant ApiGateway
+participant AuthController
+participant AuthService
+participant GoogleOAuthProvider
+participant UserService
+participant AuditService
+database "AuthDB" as AuthDB
+
+EVUser -> Frontend : click "Sign in with Google"
+Frontend -> GoogleOAuthProvider : OAuth2 authorize redirect
+GoogleOAuthProvider --> EVUser : consent screen
+EVUser -> GoogleOAuthProvider : approve
+GoogleOAuthProvider --> Frontend : authCode (redirect_uri)
+
+Frontend -> ApiGateway : POST /api/auth/google\nGoogleLoginRequest{authCode}
+ApiGateway -> AuthController : POST /api/auth/google
+AuthController -> AuthService : loginWithGoogle(GoogleLoginRequest)
+AuthService -> GoogleOAuthProvider : exchangeCode(authCode)
+GoogleOAuthProvider --> AuthService : idToken + googleProfile
+
+AuthService -> UserService : getOrCreateUser(googleProfile)
+UserService --> AuthService : UserDto
+
+AuthService -> AuthDB : persist AuthSession (User, Role)
+AuthService -> AuditService : log AuditEventDto{LOGIN_SUCCESS, userId}
+AuthService --> AuthController : AuthTokenResponse{jwt, role}
+AuthController --> ApiGateway : 200 AuthTokenResponse
+ApiGateway --> Frontend : 200 AuthTokenResponse
+Frontend --> EVUser : signed in
+
+@enduml
+
+
+' ---------------------------------------------------------------------
+' 2. SearchChargers  (EVUser)
+' ---------------------------------------------------------------------
+@startuml SearchChargers
+title SearchChargers - EVUser searches available chargers
+
+skinparam responseMessageBelowArrow true
+autonumber
+
+actor EVUser
+participant Frontend
+participant ApiGateway
+participant AuthService
+participant ChargerController
+participant ChargerService
+participant IntegrationService
+participant ExternalProviderAPI
+database "ChargerDB" as ChargerDB
+
+EVUser -> Frontend : enter location & filters
+Frontend -> ApiGateway : GET /api/chargers\nSearchChargersRequest (JWT)
+ApiGateway -> AuthService : validateToken(JWT)
+AuthService --> ApiGateway : ok (userId, role=EVUser)
+
+ApiGateway -> ChargerController : GET /api/chargers
+ChargerController -> ChargerService : searchChargers(SearchChargersRequest)
+
+ChargerService -> ChargerDB : query Charger by criteria
+ChargerDB --> ChargerService : Charger[] (cached metadata)
+
+loop for each owning Provider
+    ChargerService -> IntegrationService : getLiveStatus(chargerIds)
+    IntegrationService -> ExternalProviderAPI : GET /chargers/status\n(per ProviderApiConfig)
+    ExternalProviderAPI --> IntegrationService : ChargerStatus[]
+    IntegrationService --> ChargerService : ChargerStatus[]
+end
+
+ChargerService --> ChargerController : SearchChargersResponse{ChargerSummaryDto[]}
+ChargerController --> ApiGateway : 200 SearchChargersResponse
+ApiGateway --> Frontend : 200 SearchChargersResponse
+Frontend --> EVUser : render charger list
+
+== ViewChargerDetails ==
+EVUser -> Frontend : open charger
+Frontend -> ApiGateway : GET /api/chargers/{id} (JWT)
+ApiGateway -> ChargerController : GET /api/chargers/{id}
+ChargerController -> ChargerService : getChargerDetails(id)
+ChargerService -> ChargerDB : load Charger, PricingProfile, ConnectorType
+ChargerService -> IntegrationService : getLiveStatus(id)
+IntegrationService -> ExternalProviderAPI : GET /chargers/{id}/status
+ExternalProviderAPI --> IntegrationService : ChargerStatus
+IntegrationService --> ChargerService : ChargerStatus
+ChargerService --> ChargerController : GetChargerDetailsResponse{ChargerDetailsDto}
+ChargerController --> ApiGateway : 200 GetChargerDetailsResponse
+ApiGateway --> Frontend : 200 GetChargerDetailsResponse
+Frontend --> EVUser : show details
+
+@enduml
+
+
+' ---------------------------------------------------------------------
+' 3. CreateReservation  (EVUser)
+' ---------------------------------------------------------------------
+@startuml CreateReservation
+title CreateReservation - EVUser reserves a Charger
+
+skinparam responseMessageBelowArrow true
+autonumber
+
+actor EVUser
+participant Frontend
+participant ApiGateway
+participant AuthService
+participant ReservationController
+participant ReservationService
+participant ChargerService
+participant IntegrationService
+participant ExternalProviderAPI
+participant AuditService
+database "ReservationDB" as ReservationDB
+
+EVUser -> Frontend : pick Charger + timeSlot
+Frontend -> ApiGateway : POST /api/reservations\nCreateReservationRequest (JWT)
+ApiGateway -> AuthService : validateToken(JWT)
+AuthService --> ApiGateway : ok (userId)
+
+ApiGateway -> ReservationController : POST /api/reservations
+ReservationController -> ReservationService : createReservation(userId, CreateReservationRequest)
+
+ReservationService -> ChargerService : checkAvailability(chargerId, timeSlot)
+ChargerService -> IntegrationService : getLiveStatus(chargerId)
+IntegrationService -> ExternalProviderAPI : GET /chargers/{id}/status
+ExternalProviderAPI --> IntegrationService : ChargerStatus
+IntegrationService --> ChargerService : ChargerStatus
+ChargerService --> ReservationService : available=true | false
+
+alt Charger available
+    ReservationService -> IntegrationService : reserveSlot(chargerId, timeSlot)
+    IntegrationService -> ExternalProviderAPI : POST /reservations
+    ExternalProviderAPI --> IntegrationService : externalReservationId
+    IntegrationService --> ReservationService : confirmed
+
+    ReservationService -> ReservationDB : insert Reservation\n(status=ReservationStatus.ACTIVE)
+    ReservationService -> AuditService : log AuditEventDto{RESERVATION_CREATED, userId, reservationId}
+
+    ReservationService --> ReservationController : CreateReservationResponse{ReservationDto}
+    ReservationController --> ApiGateway : 201 CreateReservationResponse
+    ApiGateway --> Frontend : 201 CreateReservationResponse
+    Frontend --> EVUser : reservation confirmed
+else Slot unavailable
+    ReservationService -> AuditService : log AuditEventDto{RESERVATION_FAILED, userId}
+    ReservationService --> ReservationController : error CONFLICT
+    ReservationController --> ApiGateway : 409 Conflict
+    ApiGateway --> Frontend : 409 Conflict
+    Frontend --> EVUser : "slot unavailable"
+end
+
+@enduml
+
+
+' ---------------------------------------------------------------------
+' 4. CancelReservation  (EVUser)
+' ---------------------------------------------------------------------
+@startuml CancelReservation
+title CancelReservation - EVUser cancels a Reservation
+
+skinparam responseMessageBelowArrow true
+autonumber
+
+actor EVUser
+participant Frontend
+participant ApiGateway
+participant AuthService
+participant ReservationController
+participant ReservationService
+participant IntegrationService
+participant ExternalProviderAPI
+participant AuditService
+database "ReservationDB" as ReservationDB
+
+EVUser -> Frontend : cancel reservation
+Frontend -> ApiGateway : DELETE /api/reservations/{id}\nCancelReservationRequest (JWT)
+ApiGateway -> AuthService : validateToken(JWT)
+AuthService --> ApiGateway : ok (userId)
+
+ApiGateway -> ReservationController : DELETE /api/reservations/{id}
+ReservationController -> ReservationService : cancelReservation(userId, id)
+
+ReservationService -> ReservationDB : load Reservation
+ReservationDB --> ReservationService : Reservation
+
+alt Owner == userId AND status == ACTIVE
+    ReservationService -> IntegrationService : cancelExternalReservation(externalReservationId)
+    IntegrationService -> ExternalProviderAPI : DELETE /reservations/{externalId}
+    ExternalProviderAPI --> IntegrationService : ok
+
+    ReservationService -> ReservationDB : update Reservation\n(status=ReservationStatus.CANCELLED)
+    ReservationService -> AuditService : log AuditEventDto{RESERVATION_CANCELLED, userId}
+
+    ReservationService --> ReservationController : ReservationResponse{ReservationDto}
+    ReservationController --> ApiGateway : 200 ReservationResponse
+    ApiGateway --> Frontend : 200 ReservationResponse
+    Frontend --> EVUser : cancelled
+else Not owner / wrong state
+    ReservationService --> ReservationController : error FORBIDDEN
+    ReservationController --> ApiGateway : 403 Forbidden
+    ApiGateway --> Frontend : 403 Forbidden
+end
+
+@enduml
+
+
+' ---------------------------------------------------------------------
+' 5. StartSession / StopSession  (EVUser)
+' ---------------------------------------------------------------------
+@startuml StartStopSession
+title StartSession & StopSession - EVUser charges and is invoiced
+
+skinparam responseMessageBelowArrow true
+autonumber
+
+actor EVUser
+participant Frontend
+participant ApiGateway
+participant AuthService
+participant SessionController
+participant SessionService
+participant ReservationService
+participant IntegrationService
+participant ExternalProviderAPI
+participant BillingService
+participant PaymentGateway
+participant AuditService
+database "SessionDB" as SessionDB
+
+== StartSession ==
+EVUser -> Frontend : plug in & start
+Frontend -> ApiGateway : POST /api/sessions/start\nStartSessionRequest (JWT)
+ApiGateway -> AuthService : validateToken(JWT)
+AuthService --> ApiGateway : ok (userId)
+
+ApiGateway -> SessionController : POST /api/sessions/start
+SessionController -> SessionService : startSession(userId, StartSessionRequest)
+
+SessionService -> ReservationService : getReservation(reservationId)
+ReservationService --> SessionService : ReservationDto
+
+SessionService -> BillingService : authorizePayment(userId, estimatedAmount)
+BillingService -> PaymentGateway : authorize(PaymentMethodDto, amount)
+PaymentGateway --> BillingService : PaymentAuthDto{status=PaymentStatus.PREAUTHORIZED}
+BillingService --> SessionService : PaymentAuthorizationResponse
+
+SessionService -> IntegrationService : startExternalSession(chargerId)
+IntegrationService -> ExternalProviderAPI : POST /sessions/start
+ExternalProviderAPI --> IntegrationService : externalSessionId
+
+SessionService -> SessionDB : insert Session\n(status=SessionStatus.RUNNING)
+SessionService -> AuditService : log AuditEventDto{SESSION_STARTED, userId, sessionId}
+
+SessionService --> SessionController : StartSessionResponse{SessionDto}
+SessionController --> ApiGateway : 200 StartSessionResponse
+ApiGateway --> Frontend : 200 StartSessionResponse
+Frontend --> EVUser : charging started
+
+== StopSession ==
+EVUser -> Frontend : stop charging
+Frontend -> ApiGateway : POST /api/sessions/stop\nStopSessionRequest (JWT)
+ApiGateway -> SessionController : POST /api/sessions/stop
+SessionController -> SessionService : stopSession(userId, StopSessionRequest)
+
+SessionService -> IntegrationService : stopExternalSession(externalSessionId)
+IntegrationService -> ExternalProviderAPI : POST /sessions/stop
+ExternalProviderAPI --> IntegrationService : finalKwh, durationSec
+
+SessionService -> SessionDB : update Session\n(status=SessionStatus.COMPLETED, kwh, duration)
+
+SessionService -> BillingService : finalizeCharge(sessionId, finalKwh)
+BillingService -> PaymentGateway : capture(PaymentAuthDto, finalAmount)
+PaymentGateway --> BillingService : PaymentStatus.CAPTURED
+BillingService -> BillingService : generate Invoice (InvoiceDto)
+BillingService -> AuditService : log AuditEventDto{INVOICE_ISSUED, userId, invoiceId}
+BillingService --> SessionService : InvoiceResponse
+
+SessionService --> SessionController : StopSessionResponse{SessionDto, InvoiceDto}
+SessionController --> ApiGateway : 200 StopSessionResponse
+ApiGateway --> Frontend : 200 StopSessionResponse
+Frontend --> EVUser : session ended + invoice
+
+@enduml
+
+
+' ---------------------------------------------------------------------
+' 6. RegisterProvider  (ProviderAdmin)
+' ---------------------------------------------------------------------
+@startuml RegisterProvider
+title RegisterProvider - ProviderAdmin registers and configures API access
+
+skinparam responseMessageBelowArrow true
+autonumber
+
+actor ProviderAdmin
+participant Frontend
+participant ApiGateway
+participant AuthService
+participant ProviderController
+participant ProviderService
+participant IntegrationService
+participant ExternalProviderAPI
+participant BillingService
+participant AuditService
+database "ProviderDB" as ProviderDB
+
+ProviderAdmin -> Frontend : open registration form
+Frontend -> ApiGateway : POST /api/providers/register\nRegisterProviderRequest
+ApiGateway -> ProviderController : POST /api/providers/register
+ProviderController -> ProviderService : registerProvider(RegisterProviderRequest)
+
+ProviderService -> AuthService : createProviderAccount(email)
+AuthService --> ProviderService : UserDto{role=Role.PROVIDER_ADMIN}
+
+ProviderService -> ProviderDB : insert Provider, ProviderAccount\n(status=ProviderStatus.PENDING)
+ProviderService -> BillingService : createSubscription(providerId, plan)
+BillingService --> ProviderService : ProviderSubscriptionDto{status=SubscriptionStatus.ACTIVE}
+
+ProviderService -> AuditService : log AuditEventDto{PROVIDER_REGISTERED, providerId}
+ProviderService --> ProviderController : RegisterProviderResponse{ProviderDto}
+ProviderController --> ApiGateway : 201 RegisterProviderResponse
+ApiGateway --> Frontend : 201 RegisterProviderResponse
+Frontend --> ProviderAdmin : show next step (configure API)
+
+== ConfigureProviderAPI ==
+ProviderAdmin -> Frontend : enter API base URL + credentials
+Frontend -> ApiGateway : PUT /api/providers/{id}/config (JWT)
+ApiGateway -> AuthService : validateToken(JWT, role=PROVIDER_ADMIN)
+AuthService --> ApiGateway : ok
+
+ApiGateway -> ProviderController : PUT /api/providers/{id}/config
+ProviderController -> ProviderService : updateApiConfig(providerId, ProviderApiConfigDto)
+
+ProviderService -> ProviderDB : upsert ProviderApiConfig
+ProviderService -> IntegrationService : testConnection(ProviderApiConfigDto)
+IntegrationService -> ExternalProviderAPI : GET /health
+ExternalProviderAPI --> IntegrationService : 200 OK
+IntegrationService --> ProviderService : reachable
+
+ProviderService -> ProviderDB : update Provider\n(status=ProviderStatus.ACTIVE)
+ProviderService -> AuditService : log AuditEventDto{PROVIDER_API_CONFIGURED, providerId}
+
+ProviderService --> ProviderController : ProviderProfileResponse{ProviderDto}
+ProviderController --> ApiGateway : 200 ProviderProfileResponse
+ApiGateway --> Frontend : 200 ProviderProfileResponse
+Frontend --> ProviderAdmin : provider active
+
+@enduml
+
+
+' ---------------------------------------------------------------------
+' 7. PayProviderInvoice  (ProviderAdmin)
+' ---------------------------------------------------------------------
+@startuml PayProviderInvoice
+title ViewProviderInvoice + PayProviderInvoice - ProviderAdmin settles SaaS invoice
+
+skinparam responseMessageBelowArrow true
+autonumber
+
+actor ProviderAdmin
+participant Frontend
+participant ApiGateway
+participant AuthService
+participant BillingController
+participant BillingService
+participant PaymentGateway
+participant AuditService
+database "BillingDB" as BillingDB
+
+== ViewProviderInvoice ==
+ProviderAdmin -> Frontend : open invoices
+Frontend -> ApiGateway : GET /api/billing/invoices/{id} (JWT)
+ApiGateway -> AuthService : validateToken(JWT, role=PROVIDER_ADMIN)
+AuthService --> ApiGateway : ok (providerId)
+ApiGateway -> BillingController : GET /api/billing/invoices/{id}
+BillingController -> BillingService : getProviderInvoice(providerId, id)
+BillingService -> BillingDB : load ProviderInvoice + InvoiceLine[]
+BillingService --> BillingController : GetProviderInvoiceResponse{ProviderInvoiceDto}
+BillingController --> ApiGateway : 200 GetProviderInvoiceResponse
+ApiGateway --> Frontend : 200 GetProviderInvoiceResponse
+Frontend --> ProviderAdmin : show invoice
+
+== PayProviderInvoice ==
+ProviderAdmin -> Frontend : confirm payment
+Frontend -> ApiGateway : POST /api/billing/pay\nPayProviderInvoiceRequest (JWT)
+ApiGateway -> BillingController : POST /api/billing/pay
+BillingController -> BillingService : payProviderInvoice(providerId, PayProviderInvoiceRequest)
+
+BillingService -> BillingDB : load ProviderInvoice\n(status=ProviderInvoiceStatus.PENDING)
+BillingService -> PaymentGateway : charge(PaymentMethodDto, amount)
+PaymentGateway --> BillingService : ProviderPaymentDto{status=ProviderPaymentStatus.SUCCEEDED}
+
+alt Payment succeeded
+    BillingService -> BillingDB : insert ProviderPayment\nupdate ProviderInvoice\n(status=ProviderInvoiceStatus.PAID)
+    BillingService -> AuditService : log AuditEventDto{PROVIDER_INVOICE_PAID, providerId}
+    BillingService --> BillingController : PayProviderInvoiceResponse{success}
+    BillingController --> ApiGateway : 200 PayProviderInvoiceResponse
+    ApiGateway --> Frontend : 200 PayProviderInvoiceResponse
+    Frontend --> ProviderAdmin : payment confirmed
+else Payment failed
+    BillingService -> BillingDB : insert ProviderPayment\n(status=ProviderPaymentStatus.FAILED)
+    BillingService -> AuditService : log AuditEventDto{PROVIDER_PAYMENT_FAILED, providerId}
+    BillingService --> BillingController : error PAYMENT_FAILED
+    BillingController --> ApiGateway : 402 Payment Required
+    ApiGateway --> Frontend : 402 Payment Required
+    Frontend --> ProviderAdmin : payment failed
+end
+
+@enduml
+
+
+' ---------------------------------------------------------------------
+' 8. ViewProviderAnalytics + ExportUsageData  (ProviderAdmin)
+' ---------------------------------------------------------------------
+@startuml ProviderAnalyticsAndExport
+title ViewProviderAnalytics + ExportUsageData - ProviderAdmin
+
+skinparam responseMessageBelowArrow true
+autonumber
+
+actor ProviderAdmin
+participant Frontend
+participant ApiGateway
+participant AuthService
+participant AnalyticsController
+participant AnalyticsService
+participant ProviderService
+participant SessionService
+participant AuditService
+database "AnalyticsDB" as AnalyticsDB
+queue "ExportQueue" as ExportQueue
+database "ObjectStore" as ObjectStore
+
+== ViewProviderAnalytics ==
+ProviderAdmin -> Frontend : open analytics dashboard
+Frontend -> ApiGateway : GET /api/analytics/provider\nGetProviderAnalyticsRequest (JWT)
+ApiGateway -> AuthService : validateToken(JWT, role=PROVIDER_ADMIN)
+AuthService --> ApiGateway : ok (providerId)
+
+ApiGateway -> AnalyticsController : GET /api/analytics/provider
+AnalyticsController -> AnalyticsService : getProviderAnalytics(providerId, range)
+
+AnalyticsService -> ProviderService : getProviderChargers(providerId)
+ProviderService --> AnalyticsService : chargerIds[]
+
+AnalyticsService -> SessionService : getUsageMetrics(chargerIds, range)
+SessionService --> AnalyticsService : UsageMetricDto[]
+
+AnalyticsService -> AnalyticsDB : upsert ProviderAnalyticsReport
+AnalyticsService --> AnalyticsController : ProviderAnalyticsResponse{ProviderAnalyticsReportDto}
+AnalyticsController --> ApiGateway : 200 ProviderAnalyticsResponse
+ApiGateway --> Frontend : 200 ProviderAnalyticsResponse
+Frontend --> ProviderAdmin : render charts
+
+== ExportUsageData ==
+ProviderAdmin -> Frontend : "Export CSV"
+Frontend -> ApiGateway : POST /api/analytics/export\nExportUsageDataRequest (JWT)
+ApiGateway -> AnalyticsController : POST /api/analytics/export
+AnalyticsController -> AnalyticsService : requestExport(providerId, ExportUsageDataRequest)
+
+AnalyticsService -> AnalyticsDB : insert ExportJob\n(status=ExportStatus.PENDING)
+AnalyticsService -> ExportQueue : enqueue(exportJobId)
+AnalyticsService -> AuditService : log AuditEventDto{EXPORT_REQUESTED, providerId, exportJobId}
+AnalyticsService --> AnalyticsController : ExportUsageDataResponse{ExportJobDto}
+AnalyticsController --> ApiGateway : 202 ExportUsageDataResponse
+ApiGateway --> Frontend : 202 Accepted
+Frontend --> ProviderAdmin : "export queued"
+
+== Async export worker ==
+ExportQueue -> AnalyticsService : dequeue(exportJobId)
+AnalyticsService -> SessionService : streamUsage(providerId, range)
+SessionService --> AnalyticsService : rows[]
+AnalyticsService -> ObjectStore : write file (ExportFormat.CSV)
+ObjectStore --> AnalyticsService : downloadUrl
+AnalyticsService -> AnalyticsDB : update ExportJob\n(status=ExportStatus.COMPLETED, downloadUrl)
+AnalyticsService -> AuditService : log AuditEventDto{EXPORT_READY, exportJobId}
+
+@enduml
+
+
+' ---------------------------------------------------------------------
+' 9. ViewGlobalAnalytics  (PlatformOperator)
+' ---------------------------------------------------------------------
+@startuml ViewGlobalAnalytics
+title ViewGlobalAnalytics - PlatformOperator
+
+skinparam responseMessageBelowArrow true
+autonumber
+
+actor PlatformOperator
+participant Frontend
+participant ApiGateway
+participant AuthService
+participant AnalyticsController
+participant AnalyticsService
+participant ProviderService
+participant SessionService
+participant BillingService
+participant AuditService
+database "AnalyticsDB" as AnalyticsDB
+
+PlatformOperator -> Frontend : open global dashboard
+Frontend -> ApiGateway : GET /api/analytics/global\nGetGlobalAnalyticsRequest (JWT)
+ApiGateway -> AuthService : validateToken(JWT, role=PLATFORM_OPERATOR)
+AuthService --> ApiGateway : ok
+
+ApiGateway -> AnalyticsController : GET /api/analytics/global
+AnalyticsController -> AnalyticsService : getGlobalAnalytics(range)
+
+par
+    AnalyticsService -> ProviderService : getActiveProviders()
+    ProviderService --> AnalyticsService : Provider[]
+also
+    AnalyticsService -> SessionService : getGlobalUsageMetrics(range)
+    SessionService --> AnalyticsService : UsageMetricDto[]
+also
+    AnalyticsService -> BillingService : getRevenueSummary(range)
+    BillingService --> AnalyticsService : revenueTotals
+end
+
+AnalyticsService -> AnalyticsDB : upsert GlobalAnalyticsReport
+AnalyticsService -> AuditService : log AuditEventDto{GLOBAL_ANALYTICS_VIEWED}
+AnalyticsService --> AnalyticsController : GlobalAnalyticsResponse{GlobalAnalyticsReportDto}
+AnalyticsController --> ApiGateway : 200 GlobalAnalyticsResponse
+ApiGateway --> Frontend : 200 GlobalAnalyticsResponse
+Frontend --> PlatformOperator : render KPIs
+
+@enduml
