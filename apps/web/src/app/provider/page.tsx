@@ -430,11 +430,11 @@ export default function ProviderDashboard() {
   );
 
   if (!isAllowed) {
-    return <div className="min-h-screen bg-gray-50" />;
+    return <div className="h-[100dvh] overflow-y-auto bg-gray-50" />;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-[100dvh] overflow-y-auto bg-gray-50">
       <div className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 sm:px-6 lg:px-8">
         <div className="flex items-center gap-3">
           <button
